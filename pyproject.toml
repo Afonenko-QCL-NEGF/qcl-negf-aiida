@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aiida-qcl-negf"
+version = "0.2.0"
+description = "AiiDA provenance and Slurm execution for QCL-NEGF scientific plans"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "aiida-core>=2.9.2,<2.10",
+  "qcl-negf-contracts==0.2.0",
+  "jsonschema>=4.23,<5",
+]
+
+[project.urls]
+Repository = "https://github.com/AfonenkoA/qcl-negf-aiida"
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+build = ["build>=1.2,<2", "hatchling>=1.27,<2"]
+
+[project.entry-points."aiida.calculations"]
+"qcl_negf.execution" = "aiida_qcl_negf.calculation:QCLExecutionCalculation"
+
+[project.entry-points."aiida.parsers"]
+"qcl_negf.execution" = "aiida_qcl_negf.parser:QCLExecutionParser"
+
+[project.entry-points."aiida.workflows"]
+"qcl_negf.plan" = "aiida_qcl_negf.workflow:QCLPlanWorkChain"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aiida_qcl_negf"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["integration: requires an isolated AiiDA profile and local process execution"]
