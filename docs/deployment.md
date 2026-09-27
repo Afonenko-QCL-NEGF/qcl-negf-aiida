@@ -2,7 +2,7 @@
 
 Use AiiDA 2.9.2 with a PostgreSQL profile and a persistent disk-objectstore.
 Back up both together; the database alone does not contain the result files.
-[`qcl-negf-platform`](https://github.com/AfonenkoA/qcl-negf-platform) owns the
+[`qcl-negf-platform`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-platform) owns the
 NixOS modules, service accounts, Slurm nodes, runner and application environment.
 
 ## Profile and broker

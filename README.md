@@ -15,7 +15,7 @@ executions in each batch by default; direct WorkChain users can set
 Python 3.14 and AiiDA 2.9.2 are supported. Install the matching
 `qcl-negf-contracts` and `aiida-qcl-negf` wheels from the same release artifact
 set. Dependencies are specified in `pyproject.toml`. The integration repository
-[`qcl-negf`](https://github.com/AfonenkoA/qcl-negf) owns the shared Python lock and
+[`qcl-negf`](https://github.com/Afonenko-QCL-NEGF/qcl-negf) owns the shared Python lock and
 the flat Git submodule graph. The package is not assumed to be available on PyPI.
 
 ```console
@@ -30,8 +30,8 @@ register an InstalledCode whose executable is `qcl-negf` and whose default
 calculation plugin is `qcl_negf.execution`. The executable must resolve to an
 immutable solver build on every compute node. See [deployment](docs/deployment.md).
 The `qcl-negf` executable belongs to
-[`QCLNEGFRunner.jl`](https://github.com/AfonenkoA/QCLNEGFRunner.jl); numerical
-algorithms belong to [`QCLNEGF.jl`](https://github.com/AfonenkoA/QCLNEGF.jl).
+[`QCLNEGFRunner.jl`](https://github.com/Afonenko-QCL-NEGF/QCLNEGFRunner.jl); numerical
+algorithms belong to [`QCLNEGF.jl`](https://github.com/Afonenko-QCL-NEGF/QCLNEGF.jl).
 
 ## Submit a plan
 
@@ -68,7 +68,7 @@ The parser validates the result schema, plan identities and point membership.
 A process exiting with status zero is still marked failed when its scientific
 result failed or any point remained unconverged. Valid partial results remain
 accessible. HDF5 contents and artifact checksums are verified by
-[`qcl-negf-results`](https://github.com/AfonenkoA/qcl-negf-results) when consuming
+[`qcl-negf-results`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-results) when consuming
 the numerical artifacts; this parser does not duplicate that reader.
 
 For node-local scratch, set the trusted deployment option
@@ -88,7 +88,7 @@ execution is recorded; unrelated executions continue. Submit a new
 workflow for a deliberate new attempt. No cross-execution restart is implied.
 
 The service API in `aiida_qcl_negf.service` is used by
-[`qcl-negf-portal`](https://github.com/AfonenkoA/qcl-negf-portal). It needs an already
+[`qcl-negf-portal`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-portal). It needs an already
 loaded profile. Authentication, allowed Code UUIDs and request limits belong to
 the caller. See [service API](docs/service.md).
 
@@ -101,4 +101,4 @@ execution with a synthetic solver program. They test scheduler submission,
 retrieval, provenance, scientific-failure handling and independent parallel execution. They
 do not certify physical calculations or access a production Slurm cluster.
 
-Source: [GitHub](https://github.com/AfonenkoA/qcl-negf-aiida). License: MIT.
+Source: [GitHub](https://github.com/Afonenko-QCL-NEGF/qcl-negf-aiida). License: MIT.

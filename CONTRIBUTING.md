@@ -6,7 +6,7 @@ calculation pass. Numerical algorithms belong to `QCLNEGF.jl`; shared schemas
 belong to `qcl-negf-contracts`.
 
 Use the Python 3.14 workspace in
-[`qcl-negf`](https://github.com/AfonenkoA/qcl-negf), which owns the dependency lock
+[`qcl-negf`](https://github.com/Afonenko-QCL-NEGF/qcl-negf), which owns the dependency lock
 and complete component source graph. For standalone development, install the
 matching contracts wheel and this package with `uv pip install -e '.[test,build]'`.
 Run `pytest` for the complete suite. For work on
