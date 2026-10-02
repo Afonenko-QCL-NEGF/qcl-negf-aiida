@@ -19,7 +19,7 @@ dependencies = [
 Repository = "https://github.com/Afonenko-QCL-NEGF/qcl-negf-aiida"
 
 [project.optional-dependencies]
-test = ["pytest>=8,<10"]
+test = ["pytest>=8,<10", "qcl-negf-results==0.2.0"]
 build = ["build>=1.2,<2", "hatchling>=1.27,<2"]
 
 [project.entry-points."aiida.calculations"]

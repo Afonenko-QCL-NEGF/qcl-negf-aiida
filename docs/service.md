@@ -10,6 +10,7 @@ caller should use a worker thread for blocking operations.
 |---|---|
 | `list_runs(limit=50, offset=0)` | List of workflow summaries; limit 1–200 |
 | `get_run(uuid)` | Summary plus child executions and parsed scientific results |
+| `get_export_plan(uuid, execution_id)` | Exact `plan` bytes, source, SHA256 and byte count |
 | `submit_plan(plan, code_uuid, resources, label="", *, scratch_root=None)` | Submitted workflow summary |
 | `get_run_report(uuid)` | Latest 1000 workflow/child report entries, chronological |
 | `kill_run(uuid)` | Actual terminal summary after confirmed cancellation |
@@ -21,6 +22,16 @@ A summary has `uuid`, `pk`, `label`, `process_state`, `exit_status`,
 and `retrieved_uuid` (null before retrieval). `get_run` adds `plan_fingerprint`,
 `children` and `results`, the latter keyed by execution ID. Scientific result
 numbers are parsed from lossless file-backed provenance nodes.
+
+`get_export_plan` reads at most 16 MiB from the selected child's retrieved
+`result/scientific_plan.json`. It validates the schema and full decoded plan
+against the workflow's file-backed input, without reserializing numerical text.
+Only a missing repository entry permits fallback to the original raw
+`SinglefileData` input. The returned `source` is
+`aiida.retrieved:result/scientific_plan.json` or `aiida.input.plan`; missing
+retrieval, oversize, corruption or differing input identity refuses export.
+All nodes and stream handles stay with the caller's AiiDA actor; the return
+value contains bytes and scalar provenance.
 
 `submit_plan` accepts raw JSON bytes or a JSON string (preferred), or a Python
 dictionary. Raw input is preserved byte-for-byte. Browsers must send the file
