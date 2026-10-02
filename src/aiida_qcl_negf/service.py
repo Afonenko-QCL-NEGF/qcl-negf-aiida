@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import hashlib
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import PurePosixPath
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO
 from uuid import UUID
 
 from aiida import orm
@@ -17,10 +19,16 @@ from aiida.common.exceptions import NotExistent
 from aiida.engine import submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.control import kill_processes
+from qcl_negf_contracts.messages import decode
 
-from .validation import scheduler_options, validate_scratch_root
-from .workflow import QCLPlanWorkChain
 from .data import plan_data, read_json, read_plan
+from .validation import (
+    MAX_PLAN_BYTES,
+    scheduler_options,
+    validate_plan,
+    validate_scratch_root,
+)
+from .workflow import QCLPlanWorkChain
 
 PROCESS_TYPE = "aiida.workflows:qcl_negf.plan"
 MAX_ARTIFACTS = 10000
@@ -94,6 +102,55 @@ def get_run(identifier: str) -> dict[str, Any]:
     if len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > MAX_RESPONSE_BYTES:
         raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
     return response
+
+
+def get_export_plan(identifier: str, execution_id: str) -> dict[str, Any]:
+    """Read exact frozen bytes while the caller's AiiDA actor owns every handle.
+
+    Prefer the retrieved worker snapshot. Only an absent repository entry permits
+    fallback to the original file-backed workflow input; a corrupt, unreadable or
+    different retrieved plan must fail the export rather than disappear silently.
+    The returned value contains bytes and scalar provenance, never an ORM node.
+    """
+    node = _node(identifier)
+    child = next((item for item in _children(node)
+                  if item.inputs.execution_id.value == execution_id), None)
+    if child is None or "retrieved" not in child.outputs:
+        raise LookupError("Retrieved execution provenance is unavailable")
+
+    def read_bounded(handle) -> bytes:
+        raw = handle.read(MAX_PLAN_BYTES + 1)
+        if len(raw) > MAX_PLAN_BYTES:
+            raise ValueError("Frozen export plan exceeds the metadata size limit")
+        return raw
+
+    try:
+        input_plan = node.inputs.plan
+    except (AttributeError, KeyError) as exception:
+        raise ValueError("Frozen file-backed input plan is unavailable") from exception
+    with input_plan.open(mode="rb") as handle:
+        input_bytes = read_bounded(handle)
+    expected = validate_plan(decode(input_bytes, maximum=MAX_PLAN_BYTES))
+    if execution_id not in {item["id"] for item in expected["executions"]}:
+        raise LookupError("Execution is absent from the frozen input plan")
+
+    repository = child.outputs.retrieved.base.repository
+    path = "result/scientific_plan.json"
+    try:
+        repository.get_object(path)
+    except FileNotFoundError:
+        raw, source = input_bytes, "aiida.input.plan"
+    else:
+        # Presence is established before opening: read/open failures never take
+        # the missing-entry fallback, including a corrupt repository backend.
+        with repository.open(path, "rb") as handle:
+            raw = read_bounded(handle)
+        actual = validate_plan(decode(raw, maximum=MAX_PLAN_BYTES))
+        if actual != expected:
+            raise ValueError("Retrieved frozen plan differs from workflow input provenance")
+        source = "aiida.retrieved:result/scientific_plan.json"
+    return {"plan": raw, "source": source, "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw)}
 
 
 def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *, scratch_root: str | None = None) -> dict[str, Any]:

@@ -8,7 +8,7 @@ belong to `qcl-negf-contracts`.
 Use the Python 3.14 workspace in
 [`qcl-negf`](https://github.com/Afonenko-QCL-NEGF/qcl-negf), which owns the dependency lock
 and complete component source graph. For standalone development, install the
-matching contracts wheel and this package with `uv pip install -e '.[test,build]'`.
+matching contracts/results wheels and this package with `uv pip install -e '.[test,build]'`.
 Run `pytest` for the complete suite. For work on
 pure boundaries, `pytest -m 'not integration'` runs tests that need no AiiDA
 profile. Integration tests use temporary SQLite storage and a synthetic external
