@@ -162,8 +162,11 @@ def test_real_parser_keeps_negative_result_and_returns_303_without_a_profile(
     subject = SimpleNamespace(
         retrieved=SimpleNamespace(base=SimpleNamespace(repository=Repository())),
         node=SimpleNamespace(
+            uuid="synthetic-calcjob",
             inputs=SimpleNamespace(
-                plan=None, execution_id=SimpleNamespace(value="execution-1")
+                plan=None, execution_id=SimpleNamespace(value="execution-1"),
+                attempt=SimpleNamespace(value=1),
+                archive_byte_budget=SimpleNamespace(value=64 * 1024**3),
             )
         ),
         out=lambda name, value: outputs.update({name: value}),

@@ -30,6 +30,7 @@ build = ["build>=1.2,<2", "hatchling>=1.27,<2"]
 
 [project.entry-points."aiida.workflows"]
 "qcl_negf.plan" = "aiida_qcl_negf.workflow:QCLPlanWorkChain"
+"qcl_negf.execution_restart" = "aiida_qcl_negf.workflow:QCLExecutionRestartWorkChain"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aiida_qcl_negf"]
