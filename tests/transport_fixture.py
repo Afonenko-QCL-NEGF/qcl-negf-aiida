@@ -176,7 +176,10 @@ def execute(
     *,
     native_mib: int,
     scratch_root: str | None,
+    attempt: int = 1,
 ) -> None:
+    if type(attempt) is not int or attempt < 1:
+        raise ValueError("attempt must be positive")
     if scratch_root is not None:
         raise ValueError(
             "synthetic fixture does not implement Julia scratch staging; omit scratch_root"
@@ -206,6 +209,7 @@ def execute(
         "producer_kind": "synthetic-infrastructure-fixture",
         "plan_bytes_sha256": hashlib.sha256(raw).hexdigest(),
         "execution_id": identifier,
+        "attempt": attempt,
     }
     output.mkdir()
     atomic_write(
@@ -222,7 +226,7 @@ def execute(
         # complete result/commit is published before the bounded wait finishes.
         time.sleep(specification["wait_seconds"])
     point = plan["points"][0]
-    relative = f"{point['id']}/artifacts/generation-000001"
+    relative = f"archive/{identifier}/{point['id']}/artifacts/generation-000001"
     generation = output / relative
     generation.mkdir(parents=True)
     native = generation / "synthetic-analysis.h5"
@@ -245,6 +249,7 @@ def execute(
         )
     frozen_plan = generation / "synthetic-plan.json"
     atomic_write(frozen_plan, raw, immutable=True)
+    atomic_write(output / "scientific_plan.json", raw, immutable=True)
     native_row = artifact_row(
         native,
         relative=native.name,
@@ -260,7 +265,7 @@ def execute(
         "identity": {
             "point_id": point["id"],
             "execution_id": identifier,
-            "attempt": 1,
+            "attempt": attempt,
             "plan_fingerprint": plan["fingerprint"],
             "producer_kind": "synthetic-infrastructure-fixture",
             "scientific_validation": "not_performed",
@@ -289,7 +294,7 @@ def execute(
     result_point = {
         "id": point["id"],
         "execution_id": identifier,
-        "attempt": 1,
+        "attempt": attempt,
         "coordinates": {
             key: point[key]
             for key in ("temperature_K", "voltage_per_period_V", "branch", "order")
@@ -366,6 +371,7 @@ def main(arguments=None) -> int:
     run.add_argument("plan", type=Path)
     run.add_argument("output", type=Path)
     run.add_argument("--execution-id", required=True)
+    run.add_argument("--attempt", type=int, default=1)
     run.add_argument("--scratch-root")
     run.add_argument("--fixture-native-mib", type=int, default=1)
     args = parser.parse_args(arguments)
@@ -384,6 +390,7 @@ def main(arguments=None) -> int:
             args.execution_id,
             native_mib=args.fixture_native_mib,
             scratch_root=args.scratch_root,
+            attempt=args.attempt,
         )
     return 0
 

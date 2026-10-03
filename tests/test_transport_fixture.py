@@ -1,12 +1,13 @@
-"""Pure, tiny checks for the explicitly synthetic infrastructure fixture."""
+"""Bounded checks for the synthetic fixture and actual AiiDA retrieval boundary."""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-import os
+import subprocess
+import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import h5py
 import pytest
@@ -134,57 +135,111 @@ def test_cli_exit_zero_publishes_negative_native_commit_and_whole_object_export(
     assert receipt["profile"] == "full-state" and receipt["snapshot_consistent"] is True
 
 
-def test_real_parser_keeps_negative_result_and_returns_303_without_a_profile(
-    tmp_path, monkeypatch
+@pytest.mark.integration
+@pytest.mark.parametrize("attempt", [1, 7])
+def test_calcjob_cli_and_retrieve_projection_keep_negative_native_result(
+    tmp_path, code, attempt
 ):
-    from aiida_qcl_negf import parser
+    from aiida import orm
+    from aiida.common.folders import SandboxFolder
+    from aiida.common.links import LinkType
+    from aiida.engine.daemon.execmanager import retrieve_files_from_list
+    from aiida.engine.utils import instantiate_process
+    from aiida.manage import get_manager
+    from aiida.transports.plugins.local import LocalTransport
+    from aiida_qcl_negf.calculation import QCLExecutionCalculation
+    from aiida_qcl_negf.data import plan_data, read_json
+    from aiida_qcl_negf.parser import QCLExecutionParser
+    from aiida_qcl_negf.validation import scheduler_options
 
     target, plan = frozen(tmp_path)
-    fixture.main(
-        [
-            "run-plan",
-            str(target),
-            str(tmp_path / "result"),
-            "--execution-id",
-            "execution-1",
-        ]
+    # Noncanonical spacing makes an accidental JSON rewrite visible.
+    raw = json.dumps(plan, ensure_ascii=False, indent=3).encode()
+    process = instantiate_process(
+        get_manager().get_runner(), QCLExecutionCalculation,
+        code=code, plan=plan_data(raw), execution_id=orm.Str("execution-1"),
+        attempt=orm.Int(attempt), metadata={"options": scheduler_options({})},
     )
+    try:
+        with SandboxFolder() as folder:
+            info = process.prepare_for_submission(folder)
+            command = [sys.executable, str(Path(fixture.__file__).resolve()),
+                       *info.codes_info[0].cmdline_params]
+            completed = subprocess.run(command, cwd=folder.abspath, capture_output=True,
+                                       timeout=30, check=False)
+            assert completed.returncode == 0, completed.stderr.decode()
+            Path(folder.abspath, "solver.stdout").write_bytes(completed.stdout)
+            Path(folder.abspath, "solver.stderr").write_bytes(completed.stderr)
+            # A source-tree-only decoy must never be visible to the parser.
+            Path(folder.abspath, "result/unretrieved.txt").write_text("excluded")
+            projection = tmp_path / "retrieved"
+            projection.mkdir()
+            process.node.set_remote_workdir(folder.abspath)
+            with LocalTransport() as transport:
+                asyncio.run(retrieve_files_from_list(
+                    process.node, transport, str(projection), info.retrieve_list))
+            retrieved = orm.FolderData(tree=str(projection)).store()
+            retrieved.base.links.add_incoming(process.node, link_type=LinkType.CREATE,
+                                              link_label="retrieved")
+            subject = QCLExecutionParser(process.node)
+            assert subject.parse().status == 303
+            outputs = subject.outputs
+            assert outputs["inventory"].get_dict()["complete"] is True
+            assert "result/unretrieved.txt" not in {
+                row["path"] for row in outputs["inventory"].get_dict()["files"]}
+            assert retrieved.base.repository.get_object_content(
+                "result/scientific_plan.json", mode="rb") == raw
+            point = read_json(outputs["result"])["points"][0]
+            assert point["attempt"] == attempt and point["converged"] is False
+            commit_path = "result/" + point["data"]["result_commit"]
+            commit_raw = retrieved.base.repository.get_object_content(commit_path, mode="rb")
+            commit = json.loads(commit_raw)
+            validate_commit(commit)
+            assert commit["scientific_accepted"] is False
+            assert commit["identity"]["attempt"] == attempt
+            assert commit["synthetic_provenance"]["plan_bytes_sha256"] == hashlib.sha256(raw).hexdigest()
+            prefix = str(Path(commit_path).parent)
+            pointer = json.loads(retrieved.base.repository.get_object_content(
+                str(Path(prefix).parent) + "/current.json", mode="rb"))
+            assert pointer["commit_path"] == "generation-000001/commit.json"
+            assert pointer["sha256"] == hashlib.sha256(commit_raw).hexdigest()
+            for artifact in commit["artifacts"]:
+                content = retrieved.base.repository.get_object_content(
+                    prefix + "/" + artifact["path"], mode="rb")
+                assert len(content) == artifact["bytes"]
+                assert hashlib.sha256(content).hexdigest() == artifact["sha256"]
+                if artifact["role"] == "plan":
+                    assert content == raw
+                assert content == Path(folder.abspath, prefix, artifact["path"]).read_bytes()
+            selection = outputs["selection"].get_dict()
+            assert selection["attempt"] == attempt
+            assert selection["commits"][point["id"]]["commit_sha256"] == hashlib.sha256(commit_raw).hexdigest()
+    finally:
+        process.close()
 
-    class Repository:
-        def walk(self):
-            for path, directories, names in os.walk(tmp_path / "result"):
-                yield Path(path).relative_to(tmp_path), directories, names
 
-        def open(self, path, mode):
-            return (tmp_path / path).open(mode)
+def test_cli_rejects_zero_attempt_before_publication(tmp_path):
+    target, _ = frozen(tmp_path)
+    with pytest.raises(ValueError, match="attempt must be positive"):
+        fixture.main(["run-plan", str(target), str(tmp_path / "result"),
+                      "--execution-id", "execution-1", "--attempt", "0"])
+    assert not (tmp_path / "result").exists()
 
-    outputs = {}
-    subject = SimpleNamespace(
-        retrieved=SimpleNamespace(base=SimpleNamespace(repository=Repository())),
-        node=SimpleNamespace(
-            uuid="synthetic-calcjob",
-            inputs=SimpleNamespace(
-                plan=None, execution_id=SimpleNamespace(value="execution-1"),
-                attempt=SimpleNamespace(value=1),
-                archive_byte_budget=SimpleNamespace(value=64 * 1024**3),
-            )
-        ),
-        out=lambda name, value: outputs.update({name: value}),
-        exit_codes=SimpleNamespace(
-            ERROR_MISSING_RESULT=300,
-            ERROR_INVALID_RESULT=301,
-            ERROR_SCIENTIFIC_FAILURE=302,
-            ERROR_UNCONVERGED_RESULT=303,
-        ),
-    )
-    monkeypatch.setattr(parser, "read_plan", lambda _: plan)
-    monkeypatch.setattr(parser.orm, "Dict", lambda *, dict: dict)
-    monkeypatch.setattr(
-        parser.orm, "SinglefileData", lambda *, file, filename: json.load(file)
-    )
-    assert parser.QCLExecutionParser.parse(subject) == 303
-    assert outputs["inventory"]["complete"] is True
-    assert outputs["result"]["points"][0]["converged"] is False
+
+@pytest.mark.parametrize("executable,label", [
+    ("/tmp/qcl-negf-synthetic-transport-1", "SYNTHETIC-test"),
+    ("/nix/store/fixture/bin/qcl-negf", "SYNTHETIC-test"),
+    ("/nix/store/fixture/bin/qcl-negf-synthetic-transport-1", "production"),
+])
+def test_installed_harness_rejects_unmarked_code_before_profile_access(
+    tmp_path, executable, label
+):
+    import run_transport_acceptance as acceptance
+
+    with pytest.raises(ValueError, match="explicitly SYNTHETIC"):
+        acceptance.main(["--computer", "slurm", "--executable", executable,
+                         "--label", label, "--evidence", str(tmp_path / "evidence")])
+    assert not (tmp_path / "evidence").exists()
 
 
 @pytest.mark.parametrize(

@@ -229,8 +229,40 @@ server execution is performed by local fixture tests.
 ## Local evidence
 
 `pytest -q tests/test_transport_fixture.py` creates a 1 MiB native object,
-validates the frozen synthetic plan/result/native commit, runs the real parser
-against an in-memory adapter, and checks whole-object full-state export bytes.
-It starts no AiiDA profile, scheduler or physical solver. It does not prove
+validates the frozen synthetic plan/result/native commit, executes the actual
+CalcJob-generated CLI with attempts 1 and 7, projects its unchanged `retrieve_list`
+through AiiDA's LocalTransport into a real FolderData, and runs the real Parser.
+It verifies executable exit 0, Parser 303, exact plan/native bytes, hashes,
+pointer/commit identities and whole-object full-state export bytes. The negative
+attempt 0 check rejects before publication. Temporary SQLite AiiDA profiles are
+used; no scheduler job or physical solver is started. These checks do not prove
 live Slurm cancellation, TLS/browser behavior, Julia staging, PostgreSQL
 restore or scientific validity.
+
+## Installed local KVM rehearsal (1 MiB)
+
+For the small local KVM package acceptance, create an immutable wrapper named
+`qcl-negf-synthetic-transport-1` that invokes the installed application Python
+and this reviewed fixture with `--fixture-native-mib 1`. Run the supplied
+`tests/run_transport_acceptance.py` as the profile owner:
+
+```sh
+timeout 1800 APPLICATION/bin/verdi -p PROFILE run \
+  AIIDA_SOURCE/tests/run_transport_acceptance.py \
+  --computer slurm \
+  --executable /nix/store/REVIEWED-fixture/bin/qcl-negf-synthetic-transport-1 \
+  --label SYNTHETIC-local-UNIQUE_ATTEMPT \
+  --evidence /var/lib/qcl-negf/acceptance/UNIQUE_ATTEMPT
+```
+
+This explicitly invoked harness requires a Slurm Computer and a fresh SYNTHETIC
+Code label. It uses one CPU, 2 GiB RAM, a 300-second job wall time, one 1 MiB
+negative fixture and `max_attempts=1`. It calls the WorkChain directly in the
+trusted profile; it does not use or alter the production release admission
+service or production Code. Admission and evidence JSON retain the executable,
+Code/Computer/root/CalcJob/retrieved UUIDs, scheduler job ID/state, attempt,
+commit/native hashes, result selection and exact-plan check. Require root 400,
+one CalcJob 303, `converged=false`, `scientific_accepted=false`. Keep the external
+deadline and cancellation ownership rules above; a timeout requires inspecting
+only this fixture's recorded job. The 1 MiB path does not prove the 270 MiB
+archive delivery or cancellation/restore checks above.
