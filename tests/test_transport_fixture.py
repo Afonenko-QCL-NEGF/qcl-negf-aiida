@@ -242,6 +242,37 @@ def test_installed_harness_rejects_unmarked_code_before_profile_access(
     assert not (tmp_path / "evidence").exists()
 
 
+@pytest.mark.parametrize("record,status", [
+    ("JobId=73 JobState=COMPLETED ExitCode=0:0", "pass"),
+    ("JobId=73 JobState=FAILED ExitCode=1:0", "fail"),
+    ("JobId=73 JobState=COMPLETED ExitCode=2:0", "fail"),
+    ("JobId=73 JobState=COMPLETED ExitCode=0:9", "fail"),
+    ("JobId=73 JobState=RUNNING ExitCode=0:0", "fail"),
+    ("JobId=74 JobState=COMPLETED ExitCode=0:0", "fail"),
+    ("", "not_measured"),
+    ("JobId=73 JobState=COMPLETED", "not_measured"),
+])
+def test_scheduler_receipt_requires_owned_completed_zero_exit_record(record, status):
+    import run_transport_acceptance as acceptance
+
+    assert acceptance.parse_scheduler_record(record, "73")["status"] == status
+
+
+def test_scheduler_query_has_finite_budget_and_never_queries_unscoped_job(monkeypatch):
+    import run_transport_acceptance as acceptance
+
+    calls = []
+    def query(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 1, "", "Invalid job id specified")
+    monkeypatch.setattr(acceptance.subprocess, "run", query)
+    assert acceptance.scheduler_receipt("73")["status"] == "not_measured"
+    assert calls[0][0] == ["scontrol", "--oneliner", "show", "job", "73"]
+    assert calls[0][1]["timeout"] == 30 and calls[0][1]["shell"] is False
+    assert acceptance.scheduler_receipt("73; cancel-all")["status"] == "not_measured"
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize(
     "native_mib,wait_seconds", [(0, 0), (271, 0), (1, 301), (1, -1)]
 )

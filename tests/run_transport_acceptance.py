@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,6 +28,34 @@ from qcl_negf_results.commits import atomic_write, json_bytes
 SOURCE_DIRECTORY = Path(sys.argv[0] if __name__ == "__main__" else __file__).resolve().parent
 sys.path.insert(0, str(SOURCE_DIRECTORY))
 from transport_fixture import MODEL, SCOPE, freeze_plan
+
+
+def parse_scheduler_record(raw, job_id):
+    """Require a measured terminal OS status for this exact owned job."""
+    required = ("JobId", "JobState", "ExitCode")
+    values = {key: re.findall(r"(?:^|\s)" + key + r"=([^\s]+)", raw) for key in required}
+    if any(not rows for rows in values.values()):
+        return {"status": "not_measured", "reason": "Owned scheduler record or terminal fields unavailable"}
+    if any(len(rows) != 1 for rows in values.values()):
+        return {"status": "fail", "reason": "Ambiguous scheduler record"}
+    fields = {key: rows[0] for key, rows in values.items()}
+    valid = fields == {"JobId": job_id, "JobState": "COMPLETED", "ExitCode": "0:0"}
+    return {"status": "pass" if valid else "fail", "fields": fields}
+
+
+def scheduler_receipt(job_id):
+    if not isinstance(job_id, str) or not re.fullmatch(r"[0-9]+", job_id):
+        return {"status": "not_measured", "reason": "No literal owned scheduler JobId"}
+    command = ["scontrol", "--oneliner", "show", "job", job_id]
+    receipt = {"command": command, "timeout_seconds": 30}
+    try:
+        process = subprocess.run(command, capture_output=True, text=True, timeout=30, shell=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {**receipt, "status": "not_measured", "reason": str(error)}
+    receipt.update(returncode=process.returncode, stdout=process.stdout[:32768], stderr=process.stderr[:32768])
+    if process.returncode:
+        return {**receipt, "status": "not_measured", "reason": "Owned scontrol record could not be read"}
+    return {**receipt, **parse_scheduler_record(process.stdout, job_id)}
 
 
 def main(arguments=None):
@@ -79,7 +109,8 @@ def main(arguments=None):
     for node in calculations:
         child = {"uuid": node.uuid, "exit_status": node.exit_status,
                  "job_id": node.get_job_id(), "scheduler_state": str(node.get_scheduler_state()),
-                 "attempt": node.inputs.attempt.value}
+                 "attempt": node.inputs.attempt.value,
+                 "scheduler_receipt": scheduler_receipt(node.get_job_id())}
         if "retrieved" in node.outputs:
             repository = node.outputs.retrieved.base.repository
             child["retrieved_uuid"] = node.outputs.retrieved.uuid
@@ -103,7 +134,8 @@ def main(arguments=None):
             or evidence["children"][0].get("attempt") != 1
             or evidence["children"][0].get("plan_bytes_preserved") is not True
             or evidence["children"][0].get("scientific_accepted") is not False
-            or evidence["children"][0].get("converged") is not False):
+            or evidence["children"][0].get("converged") is not False
+            or evidence["children"][0]["scheduler_receipt"]["status"] != "pass"):
         raise RuntimeError("Synthetic transport acceptance failed; inspect retained evidence")
     return 0
 

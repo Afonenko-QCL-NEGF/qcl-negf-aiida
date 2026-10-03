@@ -262,7 +262,12 @@ trusted profile; it does not use or alter the production release admission
 service or production Code. Admission and evidence JSON retain the executable,
 Code/Computer/root/CalcJob/retrieved UUIDs, scheduler job ID/state, attempt,
 commit/native hashes, result selection and exact-plan check. Require root 400,
-one CalcJob 303, `converged=false`, `scientific_accepted=false`. Keep the external
+one CalcJob 303, `converged=false`, `scientific_accepted=false`. The harness also
+reads only its recorded job ID with `scontrol --oneliner show job JOB_ID` within
+30 seconds and requires `JobState=COMPLETED`, `ExitCode=0:0` and exact JobId.
+Command/output/status are retained separately from Parser303. Missing or expired
+scheduler records remain `not_measured` and prevent a complete transport pass;
+retain Slurm records long enough for this bounded query. Keep the external
 deadline and cancellation ownership rules above; a timeout requires inspecting
 only this fixture's recorded job. The 1 MiB path does not prove the 270 MiB
 archive delivery or cancellation/restore checks above.
