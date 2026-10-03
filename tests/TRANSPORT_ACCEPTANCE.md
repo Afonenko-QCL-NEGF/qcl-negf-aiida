@@ -256,7 +256,7 @@ timeout 1800 APPLICATION/bin/verdi -p PROFILE run \
 ```
 
 This explicitly invoked harness requires a Slurm Computer and a fresh SYNTHETIC
-Code label. It uses one CPU, 2 GiB RAM, a 300-second job wall time, one 1 MiB
+Code label. It uses one CPU, 1 GiB RAM, a 300-second job wall time, one 1 MiB
 negative fixture and `max_attempts=1`. It calls the WorkChain directly in the
 trusted profile; it does not use or alter the production release admission
 service or production Code. Admission and evidence JSON retain the executable,

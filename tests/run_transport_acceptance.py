@@ -62,7 +62,7 @@ def main(arguments=None):
     process = instantiate_process(
         get_manager().get_runner(), QCLPlanWorkChain, code=code, plan=plan_data(raw),
         resources=orm.Dict(dict={"num_machines": 1, "num_mpiprocs_per_machine": 1,
-            "num_cores_per_mpiproc": 1, "max_memory_kb": 2 * 1024**2,
+            "num_cores_per_mpiproc": 1, "max_memory_kb": 1024**2,
             "max_wallclock_seconds": 300}), max_concurrent=orm.Int(1),
         max_attempts=orm.Int(1), retry_backoff_seconds=orm.Int(0),
         archive_byte_budget=orm.Int(4 * 1024**2), metadata={"label": args.label},
