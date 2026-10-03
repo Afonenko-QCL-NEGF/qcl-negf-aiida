@@ -237,13 +237,18 @@ def pin_result_commits(repository, points, *, plan_fingerprint, require_receipt=
     """Bind each compact row to its exact immutable state, including prior finals."""
     selected = {}
     for point in points:
+        terminal_stationary = require_receipt and point.get("status") in ("completed", "completed_with_warnings")
         reference = point.get("data", {}).get("result_commit")
         if reference is None:
-            if require_receipt and point.get("status") in ("completed", "completed_with_warnings"):
+            if terminal_stationary:
                 raise ValueError("Stationary final lacks its committed full-state reference")
             continue
+        if terminal_stationary and reference != f"archive/{point['execution_id']}/{point['id']}/final/commit.json":
+            raise ValueError("Completed stationary final must reference its canonical archive commit")
         path = "result/" + relative_path(reference)
         commit, raw = read_metadata(repository, path)
+        if terminal_stationary and commit.get("storage_class") != "archive":
+            raise ValueError("Completed stationary final must have archive storage class")
         identity = commit.get("identity", {})
         expected = {"point_id": point["id"], "execution_id": point["execution_id"],
                     "attempt": point["attempt"], "plan_fingerprint": plan_fingerprint}
@@ -263,11 +268,13 @@ def pin_result_commits(repository, points, *, plan_fingerprint, require_receipt=
                     or any(receipt.get(key) != commit.get(key) for key in ("state_id", "state_sequence"))):
                 raise ValueError("Result state receipt conflicts with its commit")
         names = set()
+        roles = {}
         for artifact in commit.get("artifacts", []):
             name = relative_path(artifact["path"])
             if name in names:
                 raise ValueError("Duplicate final artifact")
             names.add(name)
+            roles[name] = artifact.get("role")
             checksum, count = hashlib.sha256(), 0
             with repository.open(f"{prefix}/{name}", "rb") as stream:
                 while block := stream.read(1024**2):
@@ -277,8 +284,14 @@ def pin_result_commits(repository, points, *, plan_fingerprint, require_receipt=
                     checksum.update(block)
             if count != artifact["bytes"] or checksum.hexdigest() != artifact["sha256"]:
                 raise ValueError("Final artifact digest differs")
-        if require_receipt and commit.get("storage_class") == "archive" and "physics.h5" not in names:
-            raise ValueError("Stationary final has no complete numerical state")
+        if terminal_stationary and (not {"physics.h5", "history.h5", "resolved_configuration.json"} <= names
+                or roles.get("physics.h5") != "physics.full"
+                or roles.get("history.h5") != "science.history"
+                or roles.get("resolved_configuration.json") != "model"):
+            raise ValueError("Stationary final has no complete numerical state/history/model closure")
+        for artifact in commit.get("artifacts", []):
+            if not set(artifact.get("dependencies", [])) <= names:
+                raise ValueError("Final dependency is outside its immutable closure")
         selected[point["id"]] = {"path": reference, "commit_sha256": digest,
             "identity": identity, "state_id": commit.get("state_id"),
             "state_sequence": commit.get("state_sequence"),

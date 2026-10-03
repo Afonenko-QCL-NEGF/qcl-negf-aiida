@@ -131,7 +131,7 @@ class QCLExecutionCalculation(CalcJob):
         info = CalcInfo()
         if "release_id" in self.inputs:
             info.prepend_text = (
-                "qcl-negf-release-guard --release-id " + shlex.quote(self.inputs.release_id.value)
+                "/run/current-system/sw/bin/qcl-negf-release guard --release-id " + shlex.quote(self.inputs.release_id.value)
                 + " --solver-executable " + shlex.quote(str(self.inputs.code.filepath_executable)) + " || exit 78")
         info.codes_info = [code]
         info.retrieve_list = [(f"result/{path}", ".", 2) for path in (

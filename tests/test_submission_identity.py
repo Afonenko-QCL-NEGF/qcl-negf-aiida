@@ -70,7 +70,7 @@ def test_release_guard_uses_pinned_identity_before_solver(code, plan):
         with SandboxFolder() as folder:
             process.presubmit(folder)
             script = Path(folder.abspath, "_aiidasubmit.sh").read_text()
-        guard = "qcl-negf-release-guard --release-id release-1 --solver-executable /nix/store/synthetic/bin/qcl-negf || exit 78"
+        guard = "/run/current-system/sw/bin/qcl-negf-release guard --release-id release-1 --solver-executable /nix/store/synthetic/bin/qcl-negf || exit 78"
         assert guard in script
         assert script.index(guard) < script.rindex("'run-plan'")
     finally:

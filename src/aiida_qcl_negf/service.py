@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 from uuid import UUID
 
@@ -206,6 +207,34 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
         raise ValueError("archive_byte_budget must be positive")
     options = {"max_attempts": orm.Int(max_attempts), "retry_backoff_seconds": orm.Int(retry_backoff_seconds),
                "archive_byte_budget": orm.Int(archive_byte_budget)}
+    deployment_release = os.environ.get("QCL_NEGF_RELEASE_ID")
+    deployment_solver = os.environ.get("QCL_NEGF_SOLVER_EXECUTABLE")
+    deployment_gate = os.environ.get("QCL_NEGF_RELEASE_GATE")
+    if deployment_release is not None or deployment_solver is not None or deployment_gate is not None:
+        if not deployment_release or not deployment_solver:
+            raise ValueError("Deployment release_id and solver executable must be supplied together")
+        if not IDENTIFIER.fullmatch(deployment_release):
+            raise ValueError("Deployment release_id must be a portable immutable identity")
+        solver_path = PurePosixPath(deployment_solver)
+        if (not deployment_solver.startswith("/nix/store/") or ".." in solver_path.parts
+                or str(solver_path) != deployment_solver
+                or any(ord(character) < 32 for character in deployment_solver)):
+            raise ValueError("Deployment solver executable must be an immutable Nix path")
+        if release_id is not None and release_id != deployment_release:
+            raise ValueError("Explicit release_id conflicts with the deployment release")
+        gate_path = deployment_gate or "/srv/qcl-negf/jobs/.release-admission.json"
+        if (not Path(gate_path).is_absolute() or ".." in PurePosixPath(gate_path).parts
+                or str(PurePosixPath(gate_path)) != gate_path or any(ord(character) < 32 for character in gate_path)):
+            raise ValueError("Deployment application admission path must be an absolute normalized path")
+        try:
+            with Path(gate_path).open("rb") as stream:
+                admission = decode(stream.read(64 * 1024 + 1), maximum=64 * 1024)
+        except (OSError, ValueError) as exception:
+            raise ValueError("Deployment application admission gate is unavailable or malformed") from exception
+        if (not isinstance(admission, dict) or admission.get("open") is not True
+                or admission.get("release_id") != deployment_release):
+            raise ValueError("Deployment application admission is closed or selects a different release")
+        release_id = deployment_release
     if release_id is not None:
         if not isinstance(release_id, str) or not IDENTIFIER.fullmatch(release_id):
             raise ValueError("release_id must be a portable immutable identity")
@@ -225,6 +254,8 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
         raise ValueError("The Code must use the qcl_negf.execution plugin")
     if release_id is not None and not str(code.filepath_executable).startswith("/nix/store/"):
         raise ValueError("Release-pinned execution requires an immutable Nix InstalledCode path")
+    if deployment_solver is not None and str(code.filepath_executable) != deployment_solver:
+        raise ValueError("Selected Code executable differs from the deployment solver executable")
     if not get_daemon_client().is_daemon_running:
         raise RuntimeError("AiiDA daemon is not running")
     node = submit(QCLPlanWorkChain, code=code, plan=plan_node, resources=orm.Dict(dict=resources), metadata={"label": label}, **options)

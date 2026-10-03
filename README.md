@@ -110,13 +110,19 @@ costs. The two-generation retention bound applies within each attempt and is
 not a global AiiDA repository quota.
 
 Optional `release_id` pins an immutable Nix `InstalledCode` path and runs
-`qcl-negf-release-guard` before the solver. Slurm scripts disable independent
+`/run/current-system/sw/bin/qcl-negf-release guard` before the solver. Slurm scripts disable independent
 requeue and carry a base64 JSON attempt descriptor for the platform shutdown
 adapter. Local tests inspect these scripts without submitting to Slurm.
 CPU transfer, shared-filesystem durability and real Slurm node failure remain
 hardware verification tasks.
 The service accepts explicit `release_id`, `max_attempts`,
 `retry_backoff_seconds` and `archive_byte_budget` deployment options.
+When runtime `service.env` supplies `QCL_NEGF_RELEASE_ID` and
+`QCL_NEGF_SOLVER_EXECUTABLE`, the service binds that identity automatically,
+requires the selected InstalledCode executable to match, and checks the shared
+`QCL_NEGF_RELEASE_GATE` before submission. Partial configuration, closed admission
+and explicit conflicts are rejected. Standalone use without deployment environment
+does not invent a release identity or require a gate.
 
 The service API in `aiida_qcl_negf.service` is used by
 [`qcl-negf-portal`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-portal). It needs an already

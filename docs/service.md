@@ -53,7 +53,14 @@ The default `None` runs in the shared AiiDA work directory. The path is stored
 as a separate AiiDA input and passed to the runner without shell interpolation.
 
 `release_id` optionally pins a Nix InstalledCode and runs the release admission
-guard. Retry attempts must be 1–100, backoff 0–300 seconds. These infrastructure
+guard at `/run/current-system/sw/bin/qcl-negf-release guard`, independent of batch
+PATH. Deployment `QCL_NEGF_RELEASE_ID` and `QCL_NEGF_SOLVER_EXECUTABLE` must form a
+complete pair; the service uses that release when explicit `release_id` is absent
+and rejects conflicts or a differing InstalledCode executable. The shared
+`QCL_NEGF_RELEASE_GATE` (default `/srv/qcl-negf/jobs/.release-admission.json`) must
+be open for this exact release before dispatch. Missing, malformed and closed
+gates refuse submission. Standalone use with no deployment environment keeps the
+optional release input absent. Retry attempts must be 1–100, backoff 0–300 seconds. These infrastructure
 limits never change SCBA/Poisson budgets. `archive_byte_budget` bounds explicit
 transfer of completed full finals into a fresh attempt, independently of recovery
 retention. Missing, incompatible or over-budget required archives refuse resume.

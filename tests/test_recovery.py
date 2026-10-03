@@ -26,7 +26,9 @@ def generation(repository, sequence):
     for name in ("physics.h5", "history.h5", "recovery.json", "resolved_configuration.json"):
         data = f"synthetic {name} {sequence}".encode()
         repository.files[f"{prefix}/{name}"] = data
-        artifacts.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        role = {"physics.h5": "physics.full", "history.h5": "science.history",
+                "recovery.json": "recovery", "resolved_configuration.json": "model"}[name]
+        artifacts.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data), "role": role})
     commit = {"schema": "qcl-negf.artifact-commit.v2", "identity": identity,
               "state_id": f"state-{sequence}", "state_sequence": sequence, "artifacts": artifacts,
               "checkpoint_ready": True, "storage_class": "recovery"}
@@ -73,6 +75,72 @@ def test_compact_result_refuses_commit_from_other_attempt():
              "data": {"result_commit": f"{prefix.removeprefix('result/')}/commit.json"}}
     with pytest.raises(ValueError, match="identity"):
         module.pin_result_commits(repository, [point], plan_fingerprint="a" * 64)
+
+
+def test_completed_stationary_point_requires_its_full_final_archive():
+    repository = Repository()
+    prefix = generation(repository, 1)
+    point = {"id": "point-1", "execution_id": "execution-1", "attempt": 1, "status": "completed",
+             "data": {"result_commit": f"{prefix.removeprefix('result/')}/commit.json"}}
+    recovery = importlib.import_module("aiida_qcl_negf.recovery")
+    with pytest.raises(ValueError, match="archive"):
+        recovery.pin_result_commits(repository, [point], plan_fingerprint="a" * 64, require_receipt=True)
+
+
+def test_completed_stationary_archive_path_cannot_disguise_recovery_storage():
+    repository = Repository()
+    original = generation(repository, 1)
+    final = "result/archive/execution-1/point-1/final"
+    repository.files = {name.replace(original, final): raw for name, raw in repository.files.items()}
+    point = {"id": "point-1", "execution_id": "execution-1", "attempt": 1, "status": "completed",
+             "data": {"result_commit": "archive/execution-1/point-1/final/commit.json"}}
+    recovery = importlib.import_module("aiida_qcl_negf.recovery")
+    with pytest.raises(ValueError, match="archive storage"):
+        recovery.pin_result_commits(repository, [point], plan_fingerprint="a" * 64, require_receipt=True)
+
+
+@pytest.mark.parametrize("missing", ["physics.h5", "history.h5", "resolved_configuration.json"])
+def test_completed_stationary_final_refuses_missing_full_dependency(missing):
+    repository = Repository()
+    original = generation(repository, 1)
+    prefix = "result/archive/execution-1/point-1/final"
+    repository.files = {name.replace(original, prefix): raw for name, raw in repository.files.items()}
+    commit = json.loads(repository.files[f"{prefix}/commit.json"])
+    commit["storage_class"] = "archive"
+    commit["artifacts"] = [item for item in commit["artifacts"] if item["path"] != missing]
+    raw = json.dumps(commit).encode()
+    repository.files[f"{prefix}/commit.json"] = raw
+    receipt = json.loads(repository.files[f"{prefix}/receipt.json"])
+    receipt["commit_sha256"] = hashlib.sha256(raw).hexdigest()
+    repository.files[f"{prefix}/receipt.json"] = json.dumps(receipt).encode()
+    point = {"id": "point-1", "execution_id": "execution-1", "attempt": 1, "status": "completed",
+             "data": {"result_commit": "archive/execution-1/point-1/final/commit.json"}}
+    recovery = importlib.import_module("aiida_qcl_negf.recovery")
+    with pytest.raises(ValueError, match="complete"):
+        recovery.pin_result_commits(repository, [point], plan_fingerprint="a" * 64, require_receipt=True)
+
+
+@pytest.mark.parametrize("status", ["completed", "completed_with_warnings", "paused"])
+def test_stationary_point_preserves_valid_final_or_explicit_paused_recovery(status):
+    repository = Repository()
+    prefix = generation(repository, 1)
+    if status != "paused":
+        final = "result/archive/execution-1/point-1/final"
+        repository.files = {name.replace(prefix, final): raw for name, raw in repository.files.items()}
+        prefix = final
+        commit = json.loads(repository.files[f"{prefix}/commit.json"])
+        commit["storage_class"] = "archive"
+        raw = json.dumps(commit).encode()
+        repository.files[f"{prefix}/commit.json"] = raw
+        receipt = json.loads(repository.files[f"{prefix}/receipt.json"])
+        receipt["commit_sha256"] = hashlib.sha256(raw).hexdigest()
+        repository.files[f"{prefix}/receipt.json"] = json.dumps(receipt).encode()
+    point = {"id": "point-1", "execution_id": "execution-1", "attempt": 1, "status": status,
+             "converged": False, "data": {"result_commit": f"{prefix.removeprefix('result/')}/commit.json"}}
+    recovery = importlib.import_module("aiida_qcl_negf.recovery")
+    selected = recovery.pin_result_commits(repository, [point], plan_fingerprint="a" * 64, require_receipt=True)
+    assert selected["point-1"]["receipt_status"] == "verified"
+    assert selected["point-1"]["identity"]["attempt"] == 1
 
 
 def test_latest_generation_with_missing_prior_final_falls_back_to_complete_closure():
