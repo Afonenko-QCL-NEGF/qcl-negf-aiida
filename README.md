@@ -63,9 +63,12 @@ print(run["uuid"])
 
 For each CalcJob, the input plan is stored in AiiDA, written to `plan.json`, and
 passed to `qcl-negf run-plan plan.json result --execution-id ID --attempt N`.
-Only `result/archive`, bounded `result/recovery`, the frozen plan, compact
-series, publication manifest and pause receipt enter retrieval; abandoned
-attempt directories and telemetry trees are excluded. Solver logs are retained.
+Retrieval preserves `result/archive`, bounded `result/recovery`, and
+`result/executions`, alongside the frozen plan, compact series, publication
+manifest and pause receipt. The execution tree includes operator diagnostic
+commits, their complete scientific artifact closures, and execution provenance.
+Solver logs are retained. Execution trees add storage and transfer costs; the
+recovery retention limit does not bound the whole retrieved tree.
 The parser validates the result schema, point membership, exact attempt/state
 references and artifact hashes before exposing portable recovery.
 A process exiting with status zero is still marked failed when its scientific

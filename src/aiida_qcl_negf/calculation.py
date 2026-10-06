@@ -134,9 +134,12 @@ class QCLExecutionCalculation(CalcJob):
                 "/run/current-system/sw/bin/qcl-negf-release guard --release-id " + shlex.quote(self.inputs.release_id.value)
                 + " --solver-executable " + shlex.quote(str(self.inputs.code.filepath_executable)) + " || exit 78")
         info.codes_info = [code]
+        # Operator diagnostics publish their immutable commit and full closure
+        # under executions/.../attempt-N/artifacts, outside stationary archives.
+        # Preserve execution provenance alongside all referenced payloads.
         info.retrieve_list = [(f"result/{path}", ".", 2) for path in (
             "series_result.json", "scientific_plan.json", "pause-receipt.json",
-            "retrieval-manifest.json", "archive", "recovery")]
+            "retrieval-manifest.json", "archive", "recovery", "executions")]
         info.retrieve_list.extend([self.options.output_filename, "solver.stderr"])
         if "recovery_bundle" in self.inputs:
             info.local_copy_list = [(self.inputs.recovery_bundle.uuid, ".", "recovery")]

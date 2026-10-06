@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -137,8 +138,9 @@ def test_cli_exit_zero_publishes_negative_native_commit_and_whole_object_export(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("attempt", [1, 7])
+@pytest.mark.parametrize("layout", ["archive", "executions"])
 def test_calcjob_cli_and_retrieve_projection_keep_negative_native_result(
-    tmp_path, code, attempt
+    tmp_path, code, attempt, layout
 ):
     from aiida import orm
     from aiida.common.folders import SandboxFolder
@@ -168,6 +170,27 @@ def test_calcjob_cli_and_retrieve_projection_keep_negative_native_result(
             completed = subprocess.run(command, cwd=folder.abspath, capture_output=True,
                                        timeout=30, check=False)
             assert completed.returncode == 0, completed.stderr.decode()
+            if layout == "executions":
+                # LO diagnostics are committed in the attempt tree rather than
+                # the stationary final archive. Keep the actual native closure
+                # and exact commit bytes, changing only its series locator.
+                result_root = Path(folder.abspath, "result")
+                series_path = result_root / "series_result.json"
+                series = json.loads(series_path.read_bytes())
+                previous = Path(series["points"][0]["data"]["result_commit"])
+                destination = Path(
+                    f"executions/execution-1/point-1/attempt-{attempt}/artifacts"
+                )
+                (result_root / destination.parent).mkdir(parents=True)
+                shutil.move(result_root / previous.parent.parent,
+                            result_root / destination)
+                series["points"][0]["data"]["result_commit"] = str(
+                    destination / "generation-000001/commit.json"
+                )
+                series_path.write_text(json.dumps(series))
+                (result_root / "executions/execution-1/execution_plan.yaml").write_text(
+                    "synthetic provenance; no scientific validation\n"
+                )
             Path(folder.abspath, "solver.stdout").write_bytes(completed.stdout)
             Path(folder.abspath, "solver.stderr").write_bytes(completed.stderr)
             # A source-tree-only decoy must never be visible to the parser.
@@ -189,6 +212,10 @@ def test_calcjob_cli_and_retrieve_projection_keep_negative_native_result(
                 row["path"] for row in outputs["inventory"].get_dict()["files"]}
             assert retrieved.base.repository.get_object_content(
                 "result/scientific_plan.json", mode="rb") == raw
+            if layout == "executions":
+                assert retrieved.base.repository.get_object_content(
+                    "result/executions/execution-1/execution_plan.yaml"
+                ) == "synthetic provenance; no scientific validation\n"
             point = read_json(outputs["result"])["points"][0]
             assert point["attempt"] == attempt and point["converged"] is False
             commit_path = "result/" + point["data"]["result_commit"]
