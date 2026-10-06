@@ -91,7 +91,7 @@ def test_calcjob_retrieves_and_parses(code, plan):
         execution_id=orm.Str("execution-1"), metadata={"options": scheduler_options({})})
     assert node.is_finished_ok, node.exit_message
     assert read_json(outputs["result"])["points"][0]["converged"] is True
-    assert outputs["retrieved"].base.repository.get_object_content("result/nested/evidence.txt") == "Synthetic transport evidence\n"
+    assert outputs["retrieved"].base.repository.get_object_content("result/archive/execution-1/point-1/final/evidence.txt") == "Synthetic transport evidence\n"
     assert read_plan(node.inputs.plan) == plan
 
 
@@ -117,6 +117,7 @@ def test_scratch_argument_is_preserved_as_one_argument(code, plan):
             info = process.prepare_for_submission(folder)
         assert info.codes_info[0].cmdline_params == [
             "run-plan", "plan.json", "result", "--execution-id", "execution-1",
+            "--attempt", "1",
             "--scratch-root", "/scratch/scientific data",
         ]
     finally:
@@ -146,6 +147,7 @@ def test_workflow_continues_independent_executions_after_failure(code, plan):
     children = {child.inputs.execution_id.value: child for child in node.called}
     assert set(children) == {"execution-1", "fail-execution", "independent"}
     assert children["fail-execution"].exit_status == 303  # CLI exited zero.
+    assert len(children["fail-execution"].called) == 1  # Normal nonconvergence is terminal.
     assert children["independent"].is_finished_ok
     response = get_run(node.uuid)
     assert response["results"]["fail-execution"]["points"][0]["converged"] is False
@@ -153,8 +155,8 @@ def test_workflow_continues_independent_executions_after_failure(code, plan):
     assert any("failed" in report["message"] for report in get_run_report(node.uuid))
     assert kill_run(node.uuid)["exit_status"] == 400
     files = list_artifacts(node.uuid)
-    assert any(item["path"] == "result/nested/evidence.txt" for item in files)
-    with open_artifact(node.uuid, "execution-1", "result/nested/evidence.txt") as handle:
+    assert any(item["path"] == "result/archive/execution-1/point-1/final/evidence.txt" for item in files)
+    with open_artifact(node.uuid, "execution-1", "result/archive/execution-1/point-1/final/evidence.txt") as handle:
         assert handle.read() == b"Synthetic transport evidence\n"
     with pytest.raises(ValueError):
         with open_artifact(node.uuid, "execution-1", "../outside"):

@@ -62,14 +62,20 @@ print(run["uuid"])
 ```
 
 For each CalcJob, the input plan is stored in AiiDA, written to `plan.json`, and
-passed to `qcl-negf run-plan plan.json result --execution-id ID`. The complete
-`result/` directory and solver logs are retrieved into AiiDA's object store.
-The parser validates the result schema, plan identities and point membership.
+passed to `qcl-negf run-plan plan.json result --execution-id ID --attempt N`.
+Retrieval preserves `result/archive`, bounded `result/recovery`, and
+`result/executions`, alongside the frozen plan, compact series, publication
+manifest and pause receipt. The execution tree includes operator diagnostic
+commits, their complete scientific artifact closures, and execution provenance.
+Solver logs are retained. Execution trees add storage and transfer costs; the
+recovery retention limit does not bound the whole retrieved tree.
+The parser validates the result schema, point membership, exact attempt/state
+references and artifact hashes before exposing portable recovery.
 A process exiting with status zero is still marked failed when its scientific
 result failed or any point remained unconverged. Valid partial results remain
-accessible. HDF5 contents and artifact checksums are verified by
+accessible. HDF5 numerical format and scientific evidence are independently verified by
 [`qcl-negf-results`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-results) when consuming
-the numerical artifacts; this parser does not duplicate that reader.
+the numerical artifacts.
 
 For node-local scratch, set the trusted deployment option
 `QCL_NEGF_SCRATCH_ROOT=/scratch/qcl-negf` on the portal service, or pass
@@ -84,8 +90,42 @@ See [scratch storage](docs/deployment.md#scratch-storage).
 Ordinary frozen plans with independent executions are supported. Campaign admission,
 reserve executions, cross-execution dependencies and evidence-gated scheduling are rejected before submission.
 No retry silently changes physical parameters or convergence criteria. A failed
-execution is recorded; unrelated executions continue. Submit a new
-workflow for a deliberate new attempt. No cross-execution restart is implied.
+execution is recorded; unrelated executions continue. Each execution runs through
+`QCLExecutionRestartWorkChain`, based on AiiDA's `BaseRestartWorkChain`. Defaults
+are three total attempts and a ten-second delay in the next scheduler job.
+The maximum and delay are finite, configurable inputs, separate from numerical
+iteration budgets. Nonconvergence is terminal and preserves its scientific final.
+
+Pause continues only from a hash-verified pause receipt and complete recovery
+generation. Missing-result and supported scheduler failures can retry only when
+AiiDA confirms the previous job stopped and has a verified recovery bundle.
+Ambiguous ownership, missing recovery and invalid results terminate explicitly.
+The next CalcJob receives the unchanged plan and `--recovery-bundle recovery`
+in a separate working directory. Its hash-bound `execution_progress.json` carries
+completed point records. Their full finals transfer through a separate
+`prior_archive` FolderData input and `--archive-bundle prior-archive`; missing,
+corrupt or over-budget archives refuse startup. The default `archive_byte_budget`
+is 64 GiB, configurable separately from the 8 GiB recovery bound. Completed
+points retain their original attempt identities and are not recomputed.
+AiiDA preserves previous attempts as provenance; retrieved generations, selected
+recovery and prior archive FolderData inputs add explicit storage and transfer
+costs. The two-generation retention bound applies within each attempt and is
+not a global AiiDA repository quota.
+
+Optional `release_id` pins an immutable Nix `InstalledCode` path and runs
+`/run/current-system/sw/bin/qcl-negf-release guard` before the solver. Slurm scripts disable independent
+requeue and carry a base64 JSON attempt descriptor for the platform shutdown
+adapter. Local tests inspect these scripts without submitting to Slurm.
+CPU transfer, shared-filesystem durability and real Slurm node failure remain
+hardware verification tasks.
+The service accepts explicit `release_id`, `max_attempts`,
+`retry_backoff_seconds` and `archive_byte_budget` deployment options.
+When runtime `service.env` supplies `QCL_NEGF_RELEASE_ID` and
+`QCL_NEGF_SOLVER_EXECUTABLE`, the service binds that identity automatically,
+requires the selected InstalledCode executable to match, and checks the shared
+`QCL_NEGF_RELEASE_GATE` before submission. Partial configuration, closed admission
+and explicit conflicts are rejected. Standalone use without deployment environment
+does not invent a release identity or require a gate.
 
 The service API in `aiida_qcl_negf.service` is used by
 [`qcl-negf-portal`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-portal). It needs an already
@@ -96,6 +136,11 @@ the caller. See [service API](docs/service.md).
 
 Use the integration repository's Python 3.14 environment and shared lock, or
 install the contracts wheel followed by `uv pip install -e '.[test,build]'`.
+The [bounded transport rehearsal](tests/TRANSPORT_ACCEPTANCE.md) provides an
+explicitly synthetic native-payload fixture for infrastructure acceptance,
+with 1 MiB local validity tests and an explicit 270 MiB live-fixture flag.
+It performs no physical calculation and never enters the production Code allowlist.
+
 Run `pytest`. Tests use an isolated SQLite AiiDA profile and actual local CalcJob
 execution with a synthetic solver program. They test scheduler submission,
 retrieval, provenance, scientific-failure handling and independent parallel execution. They

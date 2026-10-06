@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import hashlib
 import json
-from pathlib import PurePosixPath
-from typing import Any, BinaryIO, Iterator
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO
 from uuid import UUID
 
 from aiida import orm
@@ -17,10 +20,18 @@ from aiida.common.exceptions import NotExistent
 from aiida.engine import submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.control import kill_processes
+from qcl_negf_contracts.messages import decode
 
-from .validation import scheduler_options, validate_scratch_root
-from .workflow import QCLPlanWorkChain
 from .data import plan_data, read_json, read_plan
+from .validation import (
+    IDENTIFIER,
+    MAX_PLAN_BYTES,
+    scheduler_options,
+    validate_plan,
+    validate_scratch_root,
+)
+from .workflow import QCLPlanWorkChain
+from .recovery import MAX_ARCHIVE_BYTES
 
 PROCESS_TYPE = "aiida.workflows:qcl_negf.plan"
 MAX_ARTIFACTS = 10000
@@ -56,7 +67,39 @@ def _summary(node: orm.ProcessNode) -> dict[str, Any]:
 
 
 def _children(node: orm.WorkChainNode) -> list[orm.CalcJobNode]:
-    return sorted((child for child in node.called if isinstance(child, orm.CalcJobNode)), key=lambda child: child.ctime)
+    return sorted((child for child in node.called_descendants if isinstance(child, orm.CalcJobNode)), key=lambda child: child.ctime)
+
+
+def _attempt(child):
+    try:
+        return child.inputs.attempt.value
+    except (AttributeError, KeyError):
+        return 1
+
+
+def _select_child(node, execution_id, *, attempt=None, calcjob_uuid=None):
+    if attempt is None and calcjob_uuid is None:
+        try:
+            selections = node.outputs.selections.values()
+        except (AttributeError, KeyError):
+            selections = []
+        chosen = [item.get_dict() for item in selections if item.get_dict().get("execution_id") == execution_id]
+        if len(chosen) > 1:
+            raise ValueError("Conflicting published attempt selections")
+        if chosen:
+            attempt, calcjob_uuid = chosen[0]["attempt"], chosen[0]["calcjob_uuid"]
+    candidates = [child for child in _children(node) if child.inputs.execution_id.value == execution_id]
+    if attempt is not None:
+        if type(attempt) is not int or attempt < 1:
+            raise ValueError("Require a positive attempt")
+        candidates = [child for child in candidates if _attempt(child) == attempt]
+    if calcjob_uuid is not None:
+        candidates = [child for child in candidates if child.uuid == calcjob_uuid]
+    if len(candidates) > 1:
+        raise ValueError("Multiple attempts exist; select an exact attempt or CalcJob UUID")
+    if not candidates:
+        raise LookupError("Selected attempt is unavailable")
+    return candidates[0]
 
 
 def list_runs(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
@@ -80,6 +123,7 @@ def get_run(identifier: str) -> dict[str, Any]:
         execution_id = child.inputs.execution_id.value
         summary = _summary(child)
         summary["execution_id"] = execution_id
+        summary["attempt"] = _attempt(child)
         summary["retrieved_uuid"] = child.outputs.retrieved.uuid if "retrieved" in child.outputs else None
         remaining -= len(json.dumps(summary, ensure_ascii=False).encode("utf-8")) + 256
         if remaining < 1:
@@ -90,17 +134,111 @@ def get_run(identifier: str) -> dict[str, Any]:
             remaining -= len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
             if remaining < 1:
                 raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
-            response["results"][execution_id] = result
+            try:
+                selected = _select_child(node, execution_id)
+            except (ValueError, LookupError):
+                continue
+            if selected.uuid == child.uuid:
+                response["results"][execution_id] = result
     if len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > MAX_RESPONSE_BYTES:
         raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
     return response
 
 
-def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *, scratch_root: str | None = None) -> dict[str, Any]:
+def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob_uuid=None) -> dict[str, Any]:
+    """Read exact frozen bytes while the caller's AiiDA actor owns every handle.
+
+    Prefer the retrieved worker snapshot. Only an absent repository entry permits
+    fallback to the original file-backed workflow input; a corrupt, unreadable or
+    different retrieved plan must fail the export rather than disappear silently.
+    The returned value contains bytes and scalar provenance, never an ORM node.
+    """
+    node = _node(identifier)
+    child = _select_child(node, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs:
+        raise LookupError("Retrieved execution provenance is unavailable")
+
+    def read_bounded(handle) -> bytes:
+        raw = handle.read(MAX_PLAN_BYTES + 1)
+        if len(raw) > MAX_PLAN_BYTES:
+            raise ValueError("Frozen export plan exceeds the metadata size limit")
+        return raw
+
+    try:
+        input_plan = node.inputs.plan
+    except (AttributeError, KeyError) as exception:
+        raise ValueError("Frozen file-backed input plan is unavailable") from exception
+    with input_plan.open(mode="rb") as handle:
+        input_bytes = read_bounded(handle)
+    expected = validate_plan(decode(input_bytes, maximum=MAX_PLAN_BYTES))
+    if execution_id not in {item["id"] for item in expected["executions"]}:
+        raise LookupError("Execution is absent from the frozen input plan")
+
+    repository = child.outputs.retrieved.base.repository
+    path = "result/scientific_plan.json"
+    try:
+        repository.get_object(path)
+    except FileNotFoundError:
+        raw, source = input_bytes, "aiida.input.plan"
+    else:
+        # Presence is established before opening: read/open failures never take
+        # the missing-entry fallback, including a corrupt repository backend.
+        with repository.open(path, "rb") as handle:
+            raw = read_bounded(handle)
+        actual = validate_plan(decode(raw, maximum=MAX_PLAN_BYTES))
+        if actual != expected:
+            raise ValueError("Retrieved frozen plan differs from workflow input provenance")
+        source = "aiida.retrieved:result/scientific_plan.json"
+    return {"plan": raw, "source": source, "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw)}
+
+
+def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *,
+                scratch_root: str | None = None, release_id: str | None = None, max_attempts: int = 3,
+                retry_backoff_seconds: int = 10, archive_byte_budget: int = MAX_ARCHIVE_BYTES) -> dict[str, Any]:
     """Submit a frozen plan to the daemon after validating every admission input."""
     plan_node = plan_data(plan)
     scheduler_options(resources)
-    options = {}
+    if type(max_attempts) is not int or not 1 <= max_attempts <= 100:
+        raise ValueError("max_attempts must be between 1 and 100")
+    if type(retry_backoff_seconds) is not int or not 0 <= retry_backoff_seconds <= 300:
+        raise ValueError("retry_backoff_seconds must be between 0 and 300")
+    if type(archive_byte_budget) is not int or archive_byte_budget < 1:
+        raise ValueError("archive_byte_budget must be positive")
+    options = {"max_attempts": orm.Int(max_attempts), "retry_backoff_seconds": orm.Int(retry_backoff_seconds),
+               "archive_byte_budget": orm.Int(archive_byte_budget)}
+    deployment_release = os.environ.get("QCL_NEGF_RELEASE_ID")
+    deployment_solver = os.environ.get("QCL_NEGF_SOLVER_EXECUTABLE")
+    deployment_gate = os.environ.get("QCL_NEGF_RELEASE_GATE")
+    if deployment_release is not None or deployment_solver is not None or deployment_gate is not None:
+        if not deployment_release or not deployment_solver:
+            raise ValueError("Deployment release_id and solver executable must be supplied together")
+        if not IDENTIFIER.fullmatch(deployment_release):
+            raise ValueError("Deployment release_id must be a portable immutable identity")
+        solver_path = PurePosixPath(deployment_solver)
+        if (not deployment_solver.startswith("/nix/store/") or ".." in solver_path.parts
+                or str(solver_path) != deployment_solver
+                or any(ord(character) < 32 for character in deployment_solver)):
+            raise ValueError("Deployment solver executable must be an immutable Nix path")
+        if release_id is not None and release_id != deployment_release:
+            raise ValueError("Explicit release_id conflicts with the deployment release")
+        gate_path = deployment_gate or "/srv/qcl-negf/jobs/.release-admission.json"
+        if (not Path(gate_path).is_absolute() or ".." in PurePosixPath(gate_path).parts
+                or str(PurePosixPath(gate_path)) != gate_path or any(ord(character) < 32 for character in gate_path)):
+            raise ValueError("Deployment application admission path must be an absolute normalized path")
+        try:
+            with Path(gate_path).open("rb") as stream:
+                admission = decode(stream.read(64 * 1024 + 1), maximum=64 * 1024)
+        except (OSError, ValueError) as exception:
+            raise ValueError("Deployment application admission gate is unavailable or malformed") from exception
+        if (not isinstance(admission, dict) or admission.get("open") is not True
+                or admission.get("release_id") != deployment_release):
+            raise ValueError("Deployment application admission is closed or selects a different release")
+        release_id = deployment_release
+    if release_id is not None:
+        if not isinstance(release_id, str) or not IDENTIFIER.fullmatch(release_id):
+            raise ValueError("release_id must be a portable immutable identity")
+        options["release_id"] = orm.Str(release_id)
     if scratch_root is not None:
         options["scratch_root"] = orm.Str(validate_scratch_root(scratch_root))
     if not isinstance(label, str) or len(label) > 255:
@@ -114,6 +252,10 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
         raise ValueError("Only an installed QCL-NEGF executable is supported")
     if code.default_calc_job_plugin != "qcl_negf.execution":
         raise ValueError("The Code must use the qcl_negf.execution plugin")
+    if release_id is not None and not str(code.filepath_executable).startswith("/nix/store/"):
+        raise ValueError("Release-pinned execution requires an immutable Nix InstalledCode path")
+    if deployment_solver is not None and str(code.filepath_executable) != deployment_solver:
+        raise ValueError("Selected Code executable differs from the deployment solver executable")
     if not get_daemon_client().is_daemon_running:
         raise RuntimeError("AiiDA daemon is not running")
     node = submit(QCLPlanWorkChain, code=code, plan=plan_node, resources=orm.Dict(dict=resources), metadata={"label": label}, **options)
@@ -123,7 +265,8 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
 def get_run_report(identifier: str) -> list[dict[str, Any]]:
     """Return workflow and child reports ordered by timestamp."""
     node = _node(identifier)
-    processes = {process.pk: process for process in [node, *_children(node)]}
+    processes = {process.pk: process for process in [node, *node.called_descendants]
+                 if isinstance(process, orm.ProcessNode)}
     logs = orm.Log.collection.find(filters={"dbnode_id": {"in": list(processes)}}, order_by=[{"time": "desc"}], limit=MAX_REPORTS)
     reports = [{"level": report.levelname, "message": report.message, "time": report.time.isoformat(), "process_uuid": processes[report.dbnode_id].uuid} for report in logs]
     return sorted(reports, key=lambda report: report["time"])
@@ -150,11 +293,11 @@ def kill_run(identifier: str) -> dict[str, Any]:
     return _summary(refreshed)
 
 
-def _retrieved(identifier: str, execution_id: str) -> orm.FolderData:
-    for child in _children(_node(identifier)):
-        if child.inputs.execution_id.value == execution_id and "retrieved" in child.outputs:
-            return child.outputs.retrieved
-    raise LookupError("Retrieved execution artifacts are not available")
+def _retrieved(identifier: str, execution_id: str, *, attempt=None, calcjob_uuid=None) -> orm.FolderData:
+    child = _select_child(_node(identifier), execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs:
+        raise LookupError("Retrieved execution artifacts are not available")
+    return child.outputs.retrieved
 
 
 def list_artifacts(identifier: str) -> list[dict[str, Any]]:
@@ -166,17 +309,18 @@ def list_artifacts(identifier: str) -> list[dict[str, Any]]:
         inventory = child.outputs.inventory.get_dict()
         if not inventory["complete"] or len(files) + len(inventory["files"]) > MAX_ARTIFACTS:
             raise ValueError("Artifact listing exceeds the service limit; use AiiDA directly")
-        files.extend({"execution_id": child.inputs.execution_id.value, **item} for item in inventory["files"])
-    return sorted(files, key=lambda item: (item["execution_id"], item["path"]))
+        files.extend({"execution_id": child.inputs.execution_id.value, "attempt": _attempt(child),
+                      "calcjob_uuid": child.uuid, **item} for item in inventory["files"])
+    return sorted(files, key=lambda item: (item["execution_id"], item["attempt"], item["path"]))
 
 
 @contextmanager
-def open_artifact(identifier: str, execution_id: str, path: str) -> Iterator[BinaryIO]:
+def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
     """Stream a file from the selected run's retrieved repository only."""
     candidate = PurePosixPath(path)
     if not path or candidate.is_absolute() or ".." in candidate.parts or "\\" in path or str(candidate) != path:
         raise ValueError("Artifact path must be a normalized relative POSIX path")
-    repository = _retrieved(identifier, execution_id).base.repository
+    repository = _retrieved(identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid).base.repository
     try:
         with repository.open(path, "rb") as handle:
             yield handle

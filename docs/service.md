@@ -10,17 +10,35 @@ caller should use a worker thread for blocking operations.
 |---|---|
 | `list_runs(limit=50, offset=0)` | List of workflow summaries; limit 1–200 |
 | `get_run(uuid)` | Summary plus child executions and parsed scientific results |
-| `submit_plan(plan, code_uuid, resources, label="", *, scratch_root=None)` | Submitted workflow summary |
+| `get_export_plan(uuid, execution_id, *, attempt=None, calcjob_uuid=None)` | Exact selected-attempt `plan` bytes, source, SHA256 and byte count |
+| `submit_plan(plan, code_uuid, resources, label="", *, scratch_root=None, release_id=None, max_attempts=3, retry_backoff_seconds=10, archive_byte_budget=64*1024**3)` | Submitted workflow summary |
 | `get_run_report(uuid)` | Latest 1000 workflow/child report entries, chronological |
 | `kill_run(uuid)` | Actual terminal summary after confirmed cancellation |
-| `list_artifacts(uuid)` | Cached entries with `execution_id`, `path`, `size` |
-| `open_artifact(uuid, execution_id, path)` | Context manager for a binary stream |
+| `list_artifacts(uuid)` | Cached entries with `execution_id`, `attempt`, `calcjob_uuid`, `path`, `size` |
+| `open_artifact(uuid, execution_id, path, *, attempt=None, calcjob_uuid=None)` | Context manager for a binary stream from that exact attempt |
 
 A summary has `uuid`, `pk`, `label`, `process_state`, `exit_status`,
 `is_finished_ok`, `ctime`, and `mtime`. Child summaries also have `execution_id`
-and `retrieved_uuid` (null before retrieval). `get_run` adds `plan_fingerprint`,
+and `attempt`, `retrieved_uuid` (null before retrieval). `get_run` adds `plan_fingerprint`,
 `children` and `results`, the latter keyed by execution ID. Scientific result
 numbers are parsed from lossless file-backed provenance nodes.
+
+The plan workflow publishes a `selections` namespace from the parser's immutable
+selection outputs. A service request without explicit selectors uses this
+CalcJob UUID and attempt. Multiple attempts without a published selection are
+ambiguous and refused. Older single-attempt workflows remain readable. Compact
+results are checked against their exact commit/state receipts, so a repeated
+completion event cannot select the first similarly named execution by accident.
+
+`get_export_plan` reads at most 16 MiB from the selected child's retrieved
+`result/scientific_plan.json`. It validates the schema and full decoded plan
+against the workflow's file-backed input, without reserializing numerical text.
+Only a missing repository entry permits fallback to the original raw
+`SinglefileData` input. The returned `source` is
+`aiida.retrieved:result/scientific_plan.json` or `aiida.input.plan`; missing
+retrieval, oversize, corruption or differing input identity refuses export.
+All nodes and stream handles stay with the caller's AiiDA actor; the return
+value contains bytes and scalar provenance.
 
 `submit_plan` accepts raw JSON bytes or a JSON string (preferred), or a Python
 dictionary. Raw input is preserved byte-for-byte. Browsers must send the file
@@ -33,6 +51,20 @@ site configuration, not an HTTP request field. The portal reads
 `QCL_NEGF_SCRATCH_ROOT` from its deployment environment and passes it here.
 The default `None` runs in the shared AiiDA work directory. The path is stored
 as a separate AiiDA input and passed to the runner without shell interpolation.
+
+`release_id` optionally pins a Nix InstalledCode and runs the release admission
+guard at `/run/current-system/sw/bin/qcl-negf-release guard`, independent of batch
+PATH. Deployment `QCL_NEGF_RELEASE_ID` and `QCL_NEGF_SOLVER_EXECUTABLE` must form a
+complete pair; the service uses that release when explicit `release_id` is absent
+and rejects conflicts or a differing InstalledCode executable. The shared
+`QCL_NEGF_RELEASE_GATE` (default `/srv/qcl-negf/jobs/.release-admission.json`) must
+be open for this exact release before dispatch. Missing, malformed and closed
+gates refuse submission. Standalone use with no deployment environment keeps the
+optional release input absent. Retry attempts must be 1–100, backoff 0–300 seconds. These infrastructure
+limits never change SCBA/Poisson budgets. `archive_byte_budget` bounds explicit
+transfer of completed full finals into a fresh attempt, independently of recovery
+retention. Missing, incompatible or over-budget required archives refuse resume.
+These are trusted deployment options; callers must authorize their public exposure.
 
 Errors are `ValueError` for invalid input or exceeded service bounds,
 `LookupError` for an absent workflow/artifact, and `RuntimeError` when the daemon
