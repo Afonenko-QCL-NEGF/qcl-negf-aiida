@@ -15,6 +15,7 @@ caller should use a worker thread for blocking operations.
 | `get_run_report(uuid)` | Latest 1000 workflow/child report entries, chronological |
 | `kill_run(uuid)` | Actual terminal summary after confirmed cancellation |
 | `list_artifacts(uuid)` | Cached entries with `execution_id`, `attempt`, `calcjob_uuid`, `path`, `size` |
+| `get_artifact_metadata(uuid, execution_id, path, *, attempt=None, calcjob_uuid=None)` | One exact cached entry with execution, attempt, CalcJob UUID, path and size; no payload I/O |
 | `open_artifact(uuid, execution_id, path, *, attempt=None, calcjob_uuid=None)` | Context manager for a binary stream from that exact attempt |
 
 A summary has `uuid`, `pk`, `label`, `process_state`, `exit_status`,
@@ -29,6 +30,16 @@ CalcJob UUID and attempt. Multiple attempts without a published selection are
 ambiguous and refused. Older single-attempt workflows remain readable. Compact
 results are checked against their exact commit/state receipts, so a repeated
 completion event cannot select the first similarly named execution by accident.
+
+`get_artifact_metadata` resolves the child once, using the same selection policy
+as `open_artifact`. Both explicit selectors constrain the same child; a mismatched
+pair never falls back to the published selection. It reads only the child's cached
+Dict inventory, with at most 10,000 entries, without repository walk, open, seek,
+stat, hashing or payload reads. Missing retrieval, inventory or path raises
+`LookupError`; incomplete, oversized or duplicate-path inventory raises
+`ValueError`. Pass the returned attempt and CalcJob UUID to `open_artifact` to
+keep later streaming pinned if the workflow selection changes. This metadata
+operation and streaming API require full UUIDs and normalized relative POSIX paths.
 
 `get_export_plan` reads at most 16 MiB from the selected child's retrieved
 `result/scientific_plan.json`. It validates the schema and full decoded plan

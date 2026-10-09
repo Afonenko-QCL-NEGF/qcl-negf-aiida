@@ -314,12 +314,39 @@ def list_artifacts(identifier: str) -> list[dict[str, Any]]:
     return sorted(files, key=lambda item: (item["execution_id"], item["attempt"], item["path"]))
 
 
-@contextmanager
-def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
-    """Stream a file from the selected run's retrieved repository only."""
+def _artifact_path(path: str) -> None:
     candidate = PurePosixPath(path)
     if not path or candidate.is_absolute() or ".." in candidate.parts or "\\" in path or str(candidate) != path:
         raise ValueError("Artifact path must be a normalized relative POSIX path")
+
+
+def get_artifact_metadata(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> dict[str, Any]:
+    """Resolve one child and read its cached inventory without repository I/O."""
+    _artifact_path(path)
+    if calcjob_uuid is not None:
+        try:
+            calcjob_uuid = str(UUID(calcjob_uuid))
+        except (ValueError, TypeError, AttributeError) as exception:
+            raise ValueError("A full CalcJob UUID is required") from exception
+    child = _select_child(_node(identifier), execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs or "inventory" not in child.outputs:
+        raise LookupError("Retrieved artifact inventory is unavailable")
+    inventory = child.outputs.inventory.get_dict()
+    if not inventory["complete"] or len(inventory["files"]) > MAX_ARTIFACTS:
+        raise ValueError("Artifact inventory exceeds the service limit or is incomplete")
+    entries = [item for item in inventory["files"] if item["path"] == path]
+    if len(entries) > 1:
+        raise ValueError("Duplicate artifact inventory path")
+    if not entries:
+        raise LookupError("Artifact not found")
+    return {"execution_id": execution_id, "attempt": _attempt(child),
+            "calcjob_uuid": child.uuid, "path": path, "size": entries[0]["size"]}
+
+
+@contextmanager
+def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
+    """Stream a file from the selected run's retrieved repository only."""
+    _artifact_path(path)
     repository = _retrieved(identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid).base.repository
     try:
         with repository.open(path, "rb") as handle:
