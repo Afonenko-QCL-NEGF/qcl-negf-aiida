@@ -86,7 +86,24 @@ UUIDs. Artifact paths must be normalized relative POSIX paths.
 The API allows at most 10,000 artifact entries and 32 MiB of metadata in a run
 response. An over-limit response is rejected, not silently truncated; use AiiDA
 directly to inspect or dump the repository. Report history intentionally exposes
-the latest 1000 records; the full log stays in AiiDA.
+the latest 1000 records, returned in chronological order with the original
+`level`, `message`, `time` and `process_uuid` fields; the full log stays in AiiDA.
+
+`get_run_report` also limits the successful report JSON body to 32 MiB
+(33,554,432 bytes), including the existing `{"entries": reports}` HTTP envelope.
+The exact size is the UTF-8 byte length of compact JSON produced with
+`ensure_ascii=False`, `allow_nan=False`, `indent=None` and `separators=(",", ":")`.
+All fields, punctuation and JSON escapes count; non-ASCII text counts as UTF-8
+bytes. Equality is allowed. An oversized body raises `ValueError` with
+`Report metadata exceeds the service response limit; use AiiDA directly` before
+returning the list, without truncating records or messages. HTTP headers,
+transfer framing and the error response body are outside this successful-body
+limit.
+
+This is an aggregate output guard. The ORM query can materialize large logs
+before the check, which also allocates a complete temporary JSON string and
+encoded bytes. It establishes no bound on database/provider reads, peak RSS or
+temporary encoding allocations; their cost has not been measured.
 
 The caller must authenticate requests, restrict the permitted installed Code
 UUIDs and cap resource requests against site policy. It must bound artifact

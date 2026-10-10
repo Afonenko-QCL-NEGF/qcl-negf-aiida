@@ -269,7 +269,14 @@ def get_run_report(identifier: str) -> list[dict[str, Any]]:
                  if isinstance(process, orm.ProcessNode)}
     logs = orm.Log.collection.find(filters={"dbnode_id": {"in": list(processes)}}, order_by=[{"time": "desc"}], limit=MAX_REPORTS)
     reports = [{"level": report.levelname, "message": report.message, "time": report.time.isoformat(), "process_uuid": processes[report.dbnode_id].uuid} for report in logs]
-    return sorted(reports, key=lambda report: report["time"])
+    reports = sorted(reports, key=lambda report: report["time"])
+    response_bytes = json.dumps(
+        {"entries": reports}, ensure_ascii=False, allow_nan=False,
+        indent=None, separators=(",", ":"),
+    ).encode("utf-8")
+    if len(response_bytes) > MAX_RESPONSE_BYTES:
+        raise ValueError("Report metadata exceeds the service response limit; use AiiDA directly")
+    return reports
 
 
 def kill_run(identifier: str) -> dict[str, Any]:
