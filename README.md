@@ -132,6 +132,32 @@ The service API in `aiida_qcl_negf.service` is used by
 loaded profile. Authentication, allowed Code UUIDs and request limits belong to
 the caller. See [service API](docs/service.md).
 
+## Agent report files
+
+The loaded-profile service exposes `save_agent_report(anchor_uuid, raw)`,
+`list_agent_reports(anchor_uuid, limit=20, offset=0)` and
+`read_agent_report(anchor_uuid, report_uuid)`. It appends an immutable
+`agent-report.json` SinglefileData node after the Contracts UTF-8 format and
+all frozen run, execution, variant, attempt and CalcJob references are validated.
+Original bytes (at most 262144) are preserved, including author whitespace.
+The returned receipt contains the native UUID, filename, byte count, SHA256,
+creation time and anchor. Repeating a save creates another file; no deduplication
+or retry guarantee is provided.
+
+Listing filters schema and anchor in the database, orders newest first and
+limits each page to 1–100 receipts. It reads metadata only; the encoded
+`reports` response remains bounded by 32 MiB. Reading opens only the selected
+file, reads at most 262145 bytes and verifies format, size, hash and anchor
+attributes before returning the exact bytes. Corrupt or mismatched files fail
+explicitly. These operations do not submit jobs, read scientific results, alter
+process logs or change assessments. Author conclusions, including “accepted”,
+are prose and do not establish numerical or scientific acceptance.
+
+This is a partial report view for a run. A process UUID is not a stable research
+card; canonical questions and cross-run card relations still depend on R01.
+Different referenced roots assert an author relationship only. Authentication
+and loaded-profile ownership remain the caller's responsibility.
+
 ## Development
 
 Use the integration repository's Python 3.14 environment and shared lock, or
