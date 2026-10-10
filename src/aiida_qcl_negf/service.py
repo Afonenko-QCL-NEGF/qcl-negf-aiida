@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from collections.abc import Iterator
@@ -21,6 +22,7 @@ from aiida.engine import submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.control import kill_processes
 from qcl_negf_contracts.messages import decode
+from qcl_negf_contracts.agent_reports import MAX_AGENT_REPORT_BYTES, SCHEMA as AGENT_REPORT_SCHEMA, validate_agent_report
 
 from .data import plan_data, read_json, read_plan
 from .validation import (
@@ -262,6 +264,125 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
     return _summary(node)
 
 
+def _agent_report_uuid(identifier: str) -> str:
+    try:
+        canonical = str(UUID(identifier))
+    except (ValueError, TypeError, AttributeError) as exception:
+        raise ValueError("A canonical full UUID is required") from exception
+    if canonical != identifier:
+        raise ValueError("A canonical full UUID is required")
+    return identifier
+
+
+def _agent_report_receipt(node, anchor_uuid: str) -> dict[str, Any]:
+    """Read bounded scalar metadata only; never open an agent file here."""
+    if not isinstance(node, orm.SinglefileData):
+        raise LookupError("Agent report not found")
+    attributes = node.base.attributes
+    if attributes.get("schema") != AGENT_REPORT_SCHEMA or attributes.get("anchor_run_uuid") != anchor_uuid:
+        raise LookupError("Agent report not found")
+    root_id = attributes.get("root_definition_id")
+    root_kind = attributes.get("root_kind")
+    fingerprint = attributes.get("anchor_plan_fingerprint")
+    size = attributes.get("bytes")
+    digest = attributes.get("sha256")
+    if (node.filename != "agent-report.json"
+            or not isinstance(root_id, str) or IDENTIFIER.fullmatch(root_id) is None
+            or root_kind not in ("study", "meta")
+            or not isinstance(fingerprint, str) or len(fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in fingerprint)
+            or type(size) is not int or not 0 <= size <= MAX_AGENT_REPORT_BYTES
+            or not isinstance(digest, str) or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)):
+        raise ValueError("Corrupt agent report metadata")
+    return {"uuid": _agent_report_uuid(node.uuid), "filename": node.filename,
+            "bytes": size, "sha256": digest, "ctime": node.ctime.isoformat(),
+            "anchor": {"run_uuid": anchor_uuid, "root_definition_id": root_id,
+                       "root_kind": root_kind, "plan_fingerprint": fingerprint}}
+
+
+def save_agent_report(anchor_uuid: str, raw: str | bytes) -> dict[str, Any]:
+    """Append one author file after admitting every exact frozen run reference.
+
+    Author prose is independent of scientific results and machine assessments.
+    The validated bytes are retained unchanged; repeated calls create new nodes.
+    """
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", "strict")
+    report = validate_agent_report(raw)
+    _agent_report_uuid(anchor_uuid)
+    roots = {}
+
+    def frozen(identifier):
+        if identifier not in roots:
+            node = _node(identifier)
+            roots[identifier] = (node, read_plan(node.inputs.plan))
+        return roots[identifier]
+
+    anchor_node, anchor_plan = frozen(anchor_uuid)
+    expected_anchor = {"run_uuid": anchor_node.uuid,
+                       "root_definition_id": anchor_plan["root_definition_id"],
+                       "root_kind": anchor_plan["root_kind"],
+                       "plan_fingerprint": anchor_plan["fingerprint"]}
+    if report["anchor"] != expected_anchor:
+        raise ValueError("Agent report anchor differs from the frozen run")
+    for reference in report["used_runs"]:
+        node, plan = frozen(reference["run_uuid"])
+        if reference["plan_fingerprint"] != plan["fingerprint"]:
+            raise ValueError("Used run fingerprint differs from the frozen plan")
+        executions = [item for item in plan["executions"] if item["id"] == reference["execution_id"]]
+        if (len(executions) != 1
+                or executions[0]["definition_id"] != reference["definition_id"]
+                or executions[0]["variant_id"] != reference["variant_id"]):
+            raise ValueError("Used execution differs from the frozen plan")
+        _select_child(node, reference["execution_id"], attempt=reference["attempt"],
+                      calcjob_uuid=reference["calcjob_uuid"])
+    # No file constructor, attribute write or store may precede ALL admissions.
+    node = orm.SinglefileData(file=io.BytesIO(raw), filename="agent-report.json")
+    node.base.attributes.set_many({"schema": AGENT_REPORT_SCHEMA,
+        "anchor_run_uuid": anchor_uuid, "root_definition_id": expected_anchor["root_definition_id"],
+        "root_kind": expected_anchor["root_kind"], "anchor_plan_fingerprint": expected_anchor["plan_fingerprint"],
+        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+    node.store()
+    return _agent_report_receipt(node, anchor_uuid)
+
+
+def list_agent_reports(anchor_uuid: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+    """List immutable file receipts using bounded, ordered database selection."""
+    if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
+        raise ValueError("Require 1 <= limit <= 100 and offset >= 0")
+    _agent_report_uuid(anchor_uuid)
+    _node(anchor_uuid)
+    query = orm.QueryBuilder().append(orm.SinglefileData, filters={
+        "attributes.schema": AGENT_REPORT_SCHEMA, "attributes.anchor_run_uuid": anchor_uuid}, tag="report")
+    query.order_by({"report": {"ctime": "desc"}}).limit(limit).offset(offset)
+    reports = [_agent_report_receipt(node, anchor_uuid) for node in query.all(flat=True)]
+    response = json.dumps({"reports": reports}, ensure_ascii=False, allow_nan=False,
+                          separators=(",", ":")).encode("utf-8")
+    if len(response) > MAX_RESPONSE_BYTES:
+        raise ValueError("Agent report metadata exceeds the service response limit")
+    return reports
+
+
+def read_agent_report(anchor_uuid: str, report_uuid: str) -> bytes:
+    """Read exact bounded file bytes and verify their immutable binding metadata."""
+    _agent_report_uuid(anchor_uuid)
+    _agent_report_uuid(report_uuid)
+    _node(anchor_uuid)
+    try:
+        node = orm.load_node(report_uuid)
+    except NotExistent as exception:
+        raise LookupError("Agent report not found") from exception
+    receipt = _agent_report_receipt(node, anchor_uuid)
+    with node.open(mode="rb") as handle:
+        raw = handle.read(MAX_AGENT_REPORT_BYTES + 1)
+    report = validate_agent_report(raw)
+    if (len(raw) != receipt["bytes"] or hashlib.sha256(raw).hexdigest() != receipt["sha256"]
+            or report["anchor"] != receipt["anchor"]):
+        raise ValueError("Agent report file differs from its stored metadata")
+    return raw
+
+
 def get_run_report(identifier: str) -> list[dict[str, Any]]:
     """Return workflow and child reports ordered by timestamp."""
     node = _node(identifier)
@@ -269,7 +390,14 @@ def get_run_report(identifier: str) -> list[dict[str, Any]]:
                  if isinstance(process, orm.ProcessNode)}
     logs = orm.Log.collection.find(filters={"dbnode_id": {"in": list(processes)}}, order_by=[{"time": "desc"}], limit=MAX_REPORTS)
     reports = [{"level": report.levelname, "message": report.message, "time": report.time.isoformat(), "process_uuid": processes[report.dbnode_id].uuid} for report in logs]
-    return sorted(reports, key=lambda report: report["time"])
+    reports = sorted(reports, key=lambda report: report["time"])
+    response_bytes = json.dumps(
+        {"entries": reports}, ensure_ascii=False, allow_nan=False,
+        indent=None, separators=(",", ":"),
+    ).encode("utf-8")
+    if len(response_bytes) > MAX_RESPONSE_BYTES:
+        raise ValueError("Report metadata exceeds the service response limit; use AiiDA directly")
+    return reports
 
 
 def kill_run(identifier: str) -> dict[str, Any]:
@@ -314,12 +442,39 @@ def list_artifacts(identifier: str) -> list[dict[str, Any]]:
     return sorted(files, key=lambda item: (item["execution_id"], item["attempt"], item["path"]))
 
 
-@contextmanager
-def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
-    """Stream a file from the selected run's retrieved repository only."""
+def _artifact_path(path: str) -> None:
     candidate = PurePosixPath(path)
     if not path or candidate.is_absolute() or ".." in candidate.parts or "\\" in path or str(candidate) != path:
         raise ValueError("Artifact path must be a normalized relative POSIX path")
+
+
+def get_artifact_metadata(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> dict[str, Any]:
+    """Resolve one child and read its cached inventory without repository I/O."""
+    _artifact_path(path)
+    if calcjob_uuid is not None:
+        try:
+            calcjob_uuid = str(UUID(calcjob_uuid))
+        except (ValueError, TypeError, AttributeError) as exception:
+            raise ValueError("A full CalcJob UUID is required") from exception
+    child = _select_child(_node(identifier), execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs or "inventory" not in child.outputs:
+        raise LookupError("Retrieved artifact inventory is unavailable")
+    inventory = child.outputs.inventory.get_dict()
+    if not inventory["complete"] or len(inventory["files"]) > MAX_ARTIFACTS:
+        raise ValueError("Artifact inventory exceeds the service limit or is incomplete")
+    entries = [item for item in inventory["files"] if item["path"] == path]
+    if len(entries) > 1:
+        raise ValueError("Duplicate artifact inventory path")
+    if not entries:
+        raise LookupError("Artifact not found")
+    return {"execution_id": execution_id, "attempt": _attempt(child),
+            "calcjob_uuid": child.uuid, "path": path, "size": entries[0]["size"]}
+
+
+@contextmanager
+def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
+    """Stream a file from the selected run's retrieved repository only."""
+    _artifact_path(path)
     repository = _retrieved(identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid).base.repository
     try:
         with repository.open(path, "rb") as handle:
