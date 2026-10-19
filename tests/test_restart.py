@@ -45,3 +45,15 @@ def test_exact_attempt_selection_rejects_ambiguous_execution(source):
         assert service.get_export_plan("run", "execution-1", attempt=2)["source"].startswith("aiida.retrieved")
     finally:
         service._children = original
+
+
+@pytest.mark.parametrize("status, expected", [
+    (301, "invalid_result"),
+    (303, "scientific_terminal"),
+    (305, "invalid_result"),
+])
+def test_scientific_terminal_status_never_becomes_infrastructure_retry(status, expected):
+    """Scientific outcomes stay terminal even without stopped-owner recovery proof."""
+    assert workflow.attempt_decision(
+        status, scheduler_stopped=False, recovery_available=False,
+    ) == expected
