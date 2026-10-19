@@ -156,6 +156,28 @@ numerical artifacts. Status comes from the selected file-backed scientific resul
 `unknown` means that result output is absent. A present invalid result fails
 explicitly. The recorded status does not establish independent scientific acceptance.
 
+## Cancel a run
+
+Use [`kill_run(run_uuid)`](docs/service.md) with the loaded AiiDA profile.
+For a nonterminal run, it returns a summary only after refreshing the parent and
+observing a terminal state. `process_state` and `exit_status` are observed values:
+for example, a concurrently finished run remains `finished`, not a fabricated
+`killed` result. An already-terminal run returns its current summary without
+contacting the daemon.
+
+A stopped daemon, daemon check/dispatch/refresh errors, or a refreshed parent
+that is still nonterminal raise `RuntimeError` with a public-safe cancellation
+message. Treat cancellation as unknown: do not automatically retry/resubmit or
+issue a second submission after a lost acknowledgement. Initial invalid-UUID
+and missing-run lookup errors retain their existing semantics.
+See the [`kill_run` implementation](src/aiida_qcl_negf/service.py).
+
+A terminal parent summary does not prove that every native process has stopped
+or establish the Slurm proctrack stop gate. It also does not prove final staging
+or a recovery receipt; these remain separate operational acceptance gates.
+The existing finite retry limits, [`attempt_decision` eligibility rules](src/aiida_qcl_negf/workflow.py),
+immutable plan/attempt markers and `--no-requeue` remain in force.
+
 ## Agent report files
 
 The loaded-profile service exposes `save_agent_report(anchor_uuid, raw)`,

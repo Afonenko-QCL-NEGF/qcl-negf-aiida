@@ -553,13 +553,17 @@ def kill_run(identifier: str) -> dict[str, Any]:
     node = _node(identifier)
     if node.is_terminated:
         return _summary(node)
-    if not get_daemon_client().is_daemon_running:
+    try:
+        daemon_running = get_daemon_client().is_daemon_running
+    except Exception as exception:
+        raise RuntimeError("AiiDA could not confirm cancellation; inspect the current process state") from exception
+    if not daemon_running:
         raise RuntimeError("AiiDA daemon is not running; cancellation cannot be delivered")
     try:
         kill_processes([node], msg_text="Cancelled through the QCL-NEGF service", timeout=10.0)
+        refreshed = _node(identifier)
     except Exception as exception:
         raise RuntimeError("AiiDA could not confirm cancellation; inspect the current process state") from exception
-    refreshed = _node(identifier)
     if not refreshed.is_terminated:
         raise RuntimeError("Cancellation is not confirmed; inspect the current process state")
     return _summary(refreshed)
