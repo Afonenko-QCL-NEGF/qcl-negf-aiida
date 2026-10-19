@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from collections.abc import Iterator
@@ -21,11 +22,13 @@ from aiida.engine import submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.control import kill_processes
 from qcl_negf_contracts.messages import decode
+from qcl_negf_contracts.agent_reports import MAX_AGENT_REPORT_BYTES, SCHEMA as AGENT_REPORT_SCHEMA, validate_agent_report
 
 from .data import plan_data, read_json, read_plan
 from .validation import (
     IDENTIFIER,
     MAX_PLAN_BYTES,
+    MAX_RESULT_BYTES,
     scheduler_options,
     validate_plan,
     validate_scratch_root,
@@ -100,6 +103,149 @@ def _select_child(node, execution_id, *, attempt=None, calcjob_uuid=None):
     if not candidates:
         raise LookupError("Selected attempt is unavailable")
     return candidates[0]
+
+
+def _export_uuid(value, message):
+    if not isinstance(value, str):
+        raise ValueError(message)
+    try:
+        return str(UUID(value))
+    except (ValueError, TypeError, AttributeError) as exception:
+        raise ValueError(message) from exception
+
+
+def _export_child_identity(child):
+    try:
+        try:
+            attempt_input = child.inputs.attempt
+        except (AttributeError, KeyError):
+            attempt = 1  # Only an absent input permits the legacy default.
+        else:
+            attempt = attempt_input.value
+        uuid = _export_uuid(child.uuid, "Selected child identity is invalid")
+        if type(attempt) is not int or attempt < 1:
+            raise ValueError("Selected child identity is invalid")
+    except (AttributeError, KeyError) as exception:
+        raise ValueError("Selected child identity is invalid") from exception
+    return attempt, uuid
+
+
+def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
+    """Validate an export request and bind existing selection authority once."""
+    identifier = _export_uuid(identifier, "A full process UUID is required")
+    if not isinstance(execution_id, str) or not 1 <= len(execution_id) <= 128:
+        raise ValueError("A nonempty execution ID of at most 128 characters is required")
+    if attempt is not None and (type(attempt) is not int or attempt < 1):
+        raise ValueError("Require a positive attempt")
+    if calcjob_uuid is not None:
+        calcjob_uuid = _export_uuid(calcjob_uuid, "A full CalcJob UUID is required")
+    node = _node(identifier)
+    published = False
+    if attempt is None and calcjob_uuid is None:
+        try:
+            selections = node.outputs.selections.values()
+        except (AttributeError, KeyError):
+            selections = []
+        chosen = []
+        for item in selections:
+            try:
+                record = item.get_dict()
+                if not isinstance(record, dict):
+                    raise ValueError("Published attempt selection is invalid")
+                record_execution_id = record.get("execution_id")
+                if (not isinstance(record_execution_id, str)
+                        or not 1 <= len(record_execution_id) <= 128):
+                    raise ValueError("Published attempt selection is invalid")
+                if record_execution_id == execution_id:
+                    chosen.append(record)
+            except Exception as exception:
+                raise ValueError("Published attempt selection is invalid") from exception
+        if len(chosen) > 1:
+            raise ValueError("Conflicting published attempt selections")
+        if chosen:
+            published = True
+            record = chosen[0]
+            attempt = record.get("attempt")
+            if type(attempt) is not int or attempt < 1:
+                raise ValueError("Published attempt selection is invalid")
+            calcjob_uuid = _export_uuid(record.get("calcjob_uuid"),
+                                       "Published attempt selection is invalid")
+    candidates = [child for child in _children(node)
+                  if child.inputs.execution_id.value == execution_id]
+    if calcjob_uuid is not None:
+        candidates = [child for child in candidates if child.uuid == calcjob_uuid]
+        if not candidates:
+            if published:
+                raise ValueError("Published attempt selection is invalid")
+            raise LookupError("Selected attempt is unavailable")
+        for child in candidates:
+            stored_attempt, _ = _export_child_identity(child)
+            if attempt is not None and stored_attempt != attempt:
+                message = ("Published attempt selection is invalid" if published else
+                           "Attempt and CalcJob UUID select different children")
+                raise ValueError(message)
+    elif attempt is not None:
+        candidates = [child for child in candidates if _attempt(child) == attempt]
+    if len(candidates) > 1:
+        raise ValueError("Multiple attempts exist; select an exact attempt or CalcJob UUID")
+    if not candidates:
+        raise LookupError("Selected attempt is unavailable")
+    effective_attempt, effective_uuid = _export_child_identity(candidates[0])
+    # Always explicit: _select_child must never reread a changing publication.
+    child = _select_child(node, execution_id, attempt=effective_attempt,
+                          calcjob_uuid=effective_uuid)
+    if _export_child_identity(child) != (effective_attempt, effective_uuid):
+        raise ValueError("Selected child identity is invalid")
+    return child, effective_attempt, effective_uuid
+
+
+def get_export_selection(identifier: str, execution_id: str, *, attempt=None,
+                         calcjob_uuid=None) -> dict[str, Any]:
+    """Return detached exact child identity and its recorded scientific status."""
+    child, attempt, calcjob_uuid = _export_child(
+        identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    status = "unknown"
+    if "result" in child.outputs:
+        try:
+            result = read_json(child.outputs.result, limit=MAX_RESULT_BYTES)
+            status = result.get("status")
+            if (not isinstance(status, str) or status not in {
+                    "running", "completed", "completed_with_warnings", "failed", "cancelled", "paused"}
+                    or result.get("selected_execution_id") != execution_id):
+                raise ValueError("Invalid recorded status or execution identity")
+        except Exception as exception:
+            raise ValueError("Selected scientific result metadata is invalid") from exception
+    return {"execution_id": execution_id, "attempt": attempt,
+            "calcjob_uuid": calcjob_uuid, "status": status}
+
+
+def list_execution_artifacts(identifier: str, execution_id: str, *, attempt=None,
+                             calcjob_uuid=None) -> list[dict[str, Any]]:
+    """Return the selected child's bounded cached inventory without payload I/O."""
+    child, attempt, calcjob_uuid = _export_child(
+        identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs or "inventory" not in child.outputs:
+        raise LookupError("Retrieved execution artifact inventory is unavailable")
+    try:
+        inventory = child.outputs.inventory.get_dict()
+        if (not isinstance(inventory, dict) or inventory.get("complete") is not True
+                or not isinstance(inventory.get("files"), list)
+                or len(inventory["files"]) > MAX_ARTIFACTS):
+            raise ValueError("Invalid inventory")
+        files, paths = [], set()
+        for row in inventory["files"]:
+            if not isinstance(row, dict) or not isinstance(row.get("path"), str):
+                raise ValueError("Invalid artifact row")
+            path, size = row["path"], row.get("size")
+            _artifact_path(path)
+            if path in paths or type(size) is not int or size < 0:
+                raise ValueError("Invalid artifact path or size")
+            paths.add(path)
+            files.append({"execution_id": execution_id, "attempt": attempt,
+                          "calcjob_uuid": calcjob_uuid, "path": path, "size": size})
+    except Exception as exception:
+        raise ValueError("Selected artifact inventory is invalid or incomplete") from exception
+    return sorted(files, key=lambda row: row["path"])
 
 
 def list_runs(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
@@ -262,6 +408,125 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
     return _summary(node)
 
 
+def _agent_report_uuid(identifier: str) -> str:
+    try:
+        canonical = str(UUID(identifier))
+    except (ValueError, TypeError, AttributeError) as exception:
+        raise ValueError("A canonical full UUID is required") from exception
+    if canonical != identifier:
+        raise ValueError("A canonical full UUID is required")
+    return identifier
+
+
+def _agent_report_receipt(node, anchor_uuid: str) -> dict[str, Any]:
+    """Read bounded scalar metadata only; never open an agent file here."""
+    if not isinstance(node, orm.SinglefileData):
+        raise LookupError("Agent report not found")
+    attributes = node.base.attributes
+    if attributes.get("schema") != AGENT_REPORT_SCHEMA or attributes.get("anchor_run_uuid") != anchor_uuid:
+        raise LookupError("Agent report not found")
+    root_id = attributes.get("root_definition_id")
+    root_kind = attributes.get("root_kind")
+    fingerprint = attributes.get("anchor_plan_fingerprint")
+    size = attributes.get("bytes")
+    digest = attributes.get("sha256")
+    if (node.filename != "agent-report.json"
+            or not isinstance(root_id, str) or IDENTIFIER.fullmatch(root_id) is None
+            or root_kind not in ("study", "meta")
+            or not isinstance(fingerprint, str) or len(fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in fingerprint)
+            or type(size) is not int or not 0 <= size <= MAX_AGENT_REPORT_BYTES
+            or not isinstance(digest, str) or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)):
+        raise ValueError("Corrupt agent report metadata")
+    return {"uuid": _agent_report_uuid(node.uuid), "filename": node.filename,
+            "bytes": size, "sha256": digest, "ctime": node.ctime.isoformat(),
+            "anchor": {"run_uuid": anchor_uuid, "root_definition_id": root_id,
+                       "root_kind": root_kind, "plan_fingerprint": fingerprint}}
+
+
+def save_agent_report(anchor_uuid: str, raw: str | bytes) -> dict[str, Any]:
+    """Append one author file after admitting every exact frozen run reference.
+
+    Author prose is independent of scientific results and machine assessments.
+    The validated bytes are retained unchanged; repeated calls create new nodes.
+    """
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", "strict")
+    report = validate_agent_report(raw)
+    _agent_report_uuid(anchor_uuid)
+    roots = {}
+
+    def frozen(identifier):
+        if identifier not in roots:
+            node = _node(identifier)
+            roots[identifier] = (node, read_plan(node.inputs.plan))
+        return roots[identifier]
+
+    anchor_node, anchor_plan = frozen(anchor_uuid)
+    expected_anchor = {"run_uuid": anchor_node.uuid,
+                       "root_definition_id": anchor_plan["root_definition_id"],
+                       "root_kind": anchor_plan["root_kind"],
+                       "plan_fingerprint": anchor_plan["fingerprint"]}
+    if report["anchor"] != expected_anchor:
+        raise ValueError("Agent report anchor differs from the frozen run")
+    for reference in report["used_runs"]:
+        node, plan = frozen(reference["run_uuid"])
+        if reference["plan_fingerprint"] != plan["fingerprint"]:
+            raise ValueError("Used run fingerprint differs from the frozen plan")
+        executions = [item for item in plan["executions"] if item["id"] == reference["execution_id"]]
+        if (len(executions) != 1
+                or executions[0]["definition_id"] != reference["definition_id"]
+                or executions[0]["variant_id"] != reference["variant_id"]):
+            raise ValueError("Used execution differs from the frozen plan")
+        _select_child(node, reference["execution_id"], attempt=reference["attempt"],
+                      calcjob_uuid=reference["calcjob_uuid"])
+    # No file constructor, attribute write or store may precede ALL admissions.
+    node = orm.SinglefileData(file=io.BytesIO(raw), filename="agent-report.json")
+    node.base.attributes.set_many({"schema": AGENT_REPORT_SCHEMA,
+        "anchor_run_uuid": anchor_uuid, "root_definition_id": expected_anchor["root_definition_id"],
+        "root_kind": expected_anchor["root_kind"], "anchor_plan_fingerprint": expected_anchor["plan_fingerprint"],
+        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+    node.store()
+    return _agent_report_receipt(node, anchor_uuid)
+
+
+def list_agent_reports(anchor_uuid: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+    """List immutable file receipts using bounded, ordered database selection."""
+    if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
+        raise ValueError("Require 1 <= limit <= 100 and offset >= 0")
+    _agent_report_uuid(anchor_uuid)
+    _node(anchor_uuid)
+    query = orm.QueryBuilder().append(orm.SinglefileData, filters={
+        "attributes.schema": AGENT_REPORT_SCHEMA, "attributes.anchor_run_uuid": anchor_uuid}, tag="report")
+    query.order_by({"report": {"ctime": "desc"}}).limit(limit).offset(offset)
+    reports = [_agent_report_receipt(node, anchor_uuid) for node in query.all(flat=True)]
+    response = json.dumps({"reports": reports}, ensure_ascii=False, allow_nan=False,
+                          separators=(",", ":")).encode("utf-8")
+    if len(response) > MAX_RESPONSE_BYTES:
+        raise ValueError("Agent report metadata exceeds the service response limit")
+    return reports
+
+
+def read_agent_report(anchor_uuid: str, report_uuid: str) -> bytes:
+    """Read exact bounded file bytes and verify their immutable binding metadata."""
+    _agent_report_uuid(anchor_uuid)
+    _agent_report_uuid(report_uuid)
+    _node(anchor_uuid)
+    try:
+        node = orm.load_node(report_uuid)
+    except NotExistent as exception:
+        raise LookupError("Agent report not found") from exception
+    receipt = _agent_report_receipt(node, anchor_uuid)
+    with node.open(mode="rb") as handle:
+        raw = handle.read(MAX_AGENT_REPORT_BYTES + 1)
+    report = validate_agent_report(raw)
+    if (len(raw) != receipt["bytes"] or hashlib.sha256(raw).hexdigest() != receipt["sha256"]
+            or report["anchor"] != receipt["anchor"]):
+        raise ValueError("Agent report file differs from its stored metadata")
+    return raw
+
+
 def get_run_report(identifier: str) -> list[dict[str, Any]]:
     """Return workflow and child reports ordered by timestamp."""
     node = _node(identifier)
@@ -269,7 +534,14 @@ def get_run_report(identifier: str) -> list[dict[str, Any]]:
                  if isinstance(process, orm.ProcessNode)}
     logs = orm.Log.collection.find(filters={"dbnode_id": {"in": list(processes)}}, order_by=[{"time": "desc"}], limit=MAX_REPORTS)
     reports = [{"level": report.levelname, "message": report.message, "time": report.time.isoformat(), "process_uuid": processes[report.dbnode_id].uuid} for report in logs]
-    return sorted(reports, key=lambda report: report["time"])
+    reports = sorted(reports, key=lambda report: report["time"])
+    response_bytes = json.dumps(
+        {"entries": reports}, ensure_ascii=False, allow_nan=False,
+        indent=None, separators=(",", ":"),
+    ).encode("utf-8")
+    if len(response_bytes) > MAX_RESPONSE_BYTES:
+        raise ValueError("Report metadata exceeds the service response limit; use AiiDA directly")
+    return reports
 
 
 def kill_run(identifier: str) -> dict[str, Any]:
@@ -314,12 +586,39 @@ def list_artifacts(identifier: str) -> list[dict[str, Any]]:
     return sorted(files, key=lambda item: (item["execution_id"], item["attempt"], item["path"]))
 
 
-@contextmanager
-def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
-    """Stream a file from the selected run's retrieved repository only."""
+def _artifact_path(path: str) -> None:
     candidate = PurePosixPath(path)
     if not path or candidate.is_absolute() or ".." in candidate.parts or "\\" in path or str(candidate) != path:
         raise ValueError("Artifact path must be a normalized relative POSIX path")
+
+
+def get_artifact_metadata(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> dict[str, Any]:
+    """Resolve one child and read its cached inventory without repository I/O."""
+    _artifact_path(path)
+    if calcjob_uuid is not None:
+        try:
+            calcjob_uuid = str(UUID(calcjob_uuid))
+        except (ValueError, TypeError, AttributeError) as exception:
+            raise ValueError("A full CalcJob UUID is required") from exception
+    child = _select_child(_node(identifier), execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs or "inventory" not in child.outputs:
+        raise LookupError("Retrieved artifact inventory is unavailable")
+    inventory = child.outputs.inventory.get_dict()
+    if not inventory["complete"] or len(inventory["files"]) > MAX_ARTIFACTS:
+        raise ValueError("Artifact inventory exceeds the service limit or is incomplete")
+    entries = [item for item in inventory["files"] if item["path"] == path]
+    if len(entries) > 1:
+        raise ValueError("Duplicate artifact inventory path")
+    if not entries:
+        raise LookupError("Artifact not found")
+    return {"execution_id": execution_id, "attempt": _attempt(child),
+            "calcjob_uuid": child.uuid, "path": path, "size": entries[0]["size"]}
+
+
+@contextmanager
+def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None, calcjob_uuid=None) -> Iterator[BinaryIO]:
+    """Stream a file from the selected run's retrieved repository only."""
+    _artifact_path(path)
     repository = _retrieved(identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid).base.repository
     try:
         with repository.open(path, "rb") as handle:

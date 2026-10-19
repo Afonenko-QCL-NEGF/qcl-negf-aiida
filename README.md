@@ -131,6 +131,56 @@ The service API in `aiida_qcl_negf.service` is used by
 [`qcl-negf-portal`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-portal). It needs an already
 loaded profile. Authentication, allowed Code UUIDs and request limits belong to
 the caller. See [service API](docs/service.md).
+See the [exact-child composite export selection contract](docs/export-selection.md).
+
+Composite exports resolve one child before reading inventory, frozen plan or bytes:
+
+```python
+from aiida_qcl_negf.service import (
+    get_export_selection, list_execution_artifacts, get_export_plan, open_artifact,
+)
+
+selection = get_export_selection(run_uuid, execution_id)  # Optional attempt/CalcJob selectors.
+selectors = {key: selection[key] for key in ("attempt", "calcjob_uuid")}
+artifacts = list_execution_artifacts(run_uuid, execution_id, **selectors)
+frozen_plan = get_export_plan(run_uuid, execution_id, **selectors)
+for artifact in artifacts:
+    with open_artifact(run_uuid, execution_id, artifact["path"], **selectors) as stream:
+        consume_stream(stream)
+recorded_status = selection["status"]
+```
+
+Keep both selectors for every subsequent read, even if the published selection
+changes. Inventory is cached metadata for this child only; listing does not open
+numerical artifacts. Status comes from the selected file-backed scientific result;
+`unknown` means that result output is absent. A present invalid result fails
+explicitly. The recorded status does not establish independent scientific acceptance.
+
+## Agent report files
+
+The loaded-profile service exposes `save_agent_report(anchor_uuid, raw)`,
+`list_agent_reports(anchor_uuid, limit=20, offset=0)` and
+`read_agent_report(anchor_uuid, report_uuid)`. It appends an immutable
+`agent-report.json` SinglefileData node after the Contracts UTF-8 format and
+all frozen run, execution, variant, attempt and CalcJob references are validated.
+Original bytes (at most 262144) are preserved, including author whitespace.
+The returned receipt contains the native UUID, filename, byte count, SHA256,
+creation time and anchor. Repeating a save creates another file; no deduplication
+or retry guarantee is provided.
+
+Listing filters schema and anchor in the database, orders newest first and
+limits each page to 1–100 receipts. It reads metadata only; the encoded
+`reports` response remains bounded by 32 MiB. Reading opens only the selected
+file, reads at most 262145 bytes and verifies format, size, hash and anchor
+attributes before returning the exact bytes. Corrupt or mismatched files fail
+explicitly. These operations do not submit jobs, read scientific results, alter
+process logs or change assessments. Author conclusions, including “accepted”,
+are prose and do not establish numerical or scientific acceptance.
+
+This is a partial report view for a run. A process UUID is not a stable research
+card; canonical questions and cross-run card relations still depend on R01.
+Different referenced roots assert an author relationship only. Authentication
+and loaded-profile ownership remain the caller's responsibility.
 
 ## Development
 

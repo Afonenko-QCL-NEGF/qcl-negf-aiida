@@ -15,6 +15,7 @@ caller should use a worker thread for blocking operations.
 | `get_run_report(uuid)` | Latest 1000 workflow/child report entries, chronological |
 | `kill_run(uuid)` | Actual terminal summary after confirmed cancellation |
 | `list_artifacts(uuid)` | Cached entries with `execution_id`, `attempt`, `calcjob_uuid`, `path`, `size` |
+| `get_artifact_metadata(uuid, execution_id, path, *, attempt=None, calcjob_uuid=None)` | One exact cached entry with execution, attempt, CalcJob UUID, path and size; no payload I/O |
 | `open_artifact(uuid, execution_id, path, *, attempt=None, calcjob_uuid=None)` | Context manager for a binary stream from that exact attempt |
 
 A summary has `uuid`, `pk`, `label`, `process_state`, `exit_status`,
@@ -29,6 +30,16 @@ CalcJob UUID and attempt. Multiple attempts without a published selection are
 ambiguous and refused. Older single-attempt workflows remain readable. Compact
 results are checked against their exact commit/state receipts, so a repeated
 completion event cannot select the first similarly named execution by accident.
+
+`get_artifact_metadata` resolves the child once, using the same selection policy
+as `open_artifact`. Both explicit selectors constrain the same child; a mismatched
+pair never falls back to the published selection. It reads only the child's cached
+Dict inventory, with at most 10,000 entries, without repository walk, open, seek,
+stat, hashing or payload reads. Missing retrieval, inventory or path raises
+`LookupError`; incomplete, oversized or duplicate-path inventory raises
+`ValueError`. Pass the returned attempt and CalcJob UUID to `open_artifact` to
+keep later streaming pinned if the workflow selection changes. This metadata
+operation and streaming API require full UUIDs and normalized relative POSIX paths.
 
 `get_export_plan` reads at most 16 MiB from the selected child's retrieved
 `result/scientific_plan.json`. It validates the schema and full decoded plan
@@ -75,7 +86,24 @@ UUIDs. Artifact paths must be normalized relative POSIX paths.
 The API allows at most 10,000 artifact entries and 32 MiB of metadata in a run
 response. An over-limit response is rejected, not silently truncated; use AiiDA
 directly to inspect or dump the repository. Report history intentionally exposes
-the latest 1000 records; the full log stays in AiiDA.
+the latest 1000 records, returned in chronological order with the original
+`level`, `message`, `time` and `process_uuid` fields; the full log stays in AiiDA.
+
+`get_run_report` also limits the successful report JSON body to 32 MiB
+(33,554,432 bytes), including the existing `{"entries": reports}` HTTP envelope.
+The exact size is the UTF-8 byte length of compact JSON produced with
+`ensure_ascii=False`, `allow_nan=False`, `indent=None` and `separators=(",", ":")`.
+All fields, punctuation and JSON escapes count; non-ASCII text counts as UTF-8
+bytes. Equality is allowed. An oversized body raises `ValueError` with
+`Report metadata exceeds the service response limit; use AiiDA directly` before
+returning the list, without truncating records or messages. HTTP headers,
+transfer framing and the error response body are outside this successful-body
+limit.
+
+This is an aggregate output guard. The ORM query can materialize large logs
+before the check, which also allocates a complete temporary JSON string and
+encoded bytes. It establishes no bound on database/provider reads, peak RSS or
+temporary encoding allocations; their cost has not been measured.
 
 The caller must authenticate requests, restrict the permitted installed Code
 UUIDs and cap resource requests against site policy. It must bound artifact
