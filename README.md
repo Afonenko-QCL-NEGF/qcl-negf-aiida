@@ -131,6 +131,30 @@ The service API in `aiida_qcl_negf.service` is used by
 [`qcl-negf-portal`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-portal). It needs an already
 loaded profile. Authentication, allowed Code UUIDs and request limits belong to
 the caller. See [service API](docs/service.md).
+See the [exact-child composite export selection contract](docs/export-selection.md).
+
+Composite exports resolve one child before reading inventory, frozen plan or bytes:
+
+```python
+from aiida_qcl_negf.service import (
+    get_export_selection, list_execution_artifacts, get_export_plan, open_artifact,
+)
+
+selection = get_export_selection(run_uuid, execution_id)  # Optional attempt/CalcJob selectors.
+selectors = {key: selection[key] for key in ("attempt", "calcjob_uuid")}
+artifacts = list_execution_artifacts(run_uuid, execution_id, **selectors)
+frozen_plan = get_export_plan(run_uuid, execution_id, **selectors)
+for artifact in artifacts:
+    with open_artifact(run_uuid, execution_id, artifact["path"], **selectors) as stream:
+        consume_stream(stream)
+recorded_status = selection["status"]
+```
+
+Keep both selectors for every subsequent read, even if the published selection
+changes. Inventory is cached metadata for this child only; listing does not open
+numerical artifacts. Status comes from the selected file-backed scientific result;
+`unknown` means that result output is absent. A present invalid result fails
+explicitly. The recorded status does not establish independent scientific acceptance.
 
 ## Agent report files
 

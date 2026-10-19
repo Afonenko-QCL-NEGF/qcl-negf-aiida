@@ -28,6 +28,7 @@ from .data import plan_data, read_json, read_plan
 from .validation import (
     IDENTIFIER,
     MAX_PLAN_BYTES,
+    MAX_RESULT_BYTES,
     scheduler_options,
     validate_plan,
     validate_scratch_root,
@@ -102,6 +103,149 @@ def _select_child(node, execution_id, *, attempt=None, calcjob_uuid=None):
     if not candidates:
         raise LookupError("Selected attempt is unavailable")
     return candidates[0]
+
+
+def _export_uuid(value, message):
+    if not isinstance(value, str):
+        raise ValueError(message)
+    try:
+        return str(UUID(value))
+    except (ValueError, TypeError, AttributeError) as exception:
+        raise ValueError(message) from exception
+
+
+def _export_child_identity(child):
+    try:
+        try:
+            attempt_input = child.inputs.attempt
+        except (AttributeError, KeyError):
+            attempt = 1  # Only an absent input permits the legacy default.
+        else:
+            attempt = attempt_input.value
+        uuid = _export_uuid(child.uuid, "Selected child identity is invalid")
+        if type(attempt) is not int or attempt < 1:
+            raise ValueError("Selected child identity is invalid")
+    except (AttributeError, KeyError) as exception:
+        raise ValueError("Selected child identity is invalid") from exception
+    return attempt, uuid
+
+
+def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
+    """Validate an export request and bind existing selection authority once."""
+    identifier = _export_uuid(identifier, "A full process UUID is required")
+    if not isinstance(execution_id, str) or not 1 <= len(execution_id) <= 128:
+        raise ValueError("A nonempty execution ID of at most 128 characters is required")
+    if attempt is not None and (type(attempt) is not int or attempt < 1):
+        raise ValueError("Require a positive attempt")
+    if calcjob_uuid is not None:
+        calcjob_uuid = _export_uuid(calcjob_uuid, "A full CalcJob UUID is required")
+    node = _node(identifier)
+    published = False
+    if attempt is None and calcjob_uuid is None:
+        try:
+            selections = node.outputs.selections.values()
+        except (AttributeError, KeyError):
+            selections = []
+        chosen = []
+        for item in selections:
+            try:
+                record = item.get_dict()
+                if not isinstance(record, dict):
+                    raise ValueError("Published attempt selection is invalid")
+                record_execution_id = record.get("execution_id")
+                if (not isinstance(record_execution_id, str)
+                        or not 1 <= len(record_execution_id) <= 128):
+                    raise ValueError("Published attempt selection is invalid")
+                if record_execution_id == execution_id:
+                    chosen.append(record)
+            except Exception as exception:
+                raise ValueError("Published attempt selection is invalid") from exception
+        if len(chosen) > 1:
+            raise ValueError("Conflicting published attempt selections")
+        if chosen:
+            published = True
+            record = chosen[0]
+            attempt = record.get("attempt")
+            if type(attempt) is not int or attempt < 1:
+                raise ValueError("Published attempt selection is invalid")
+            calcjob_uuid = _export_uuid(record.get("calcjob_uuid"),
+                                       "Published attempt selection is invalid")
+    candidates = [child for child in _children(node)
+                  if child.inputs.execution_id.value == execution_id]
+    if calcjob_uuid is not None:
+        candidates = [child for child in candidates if child.uuid == calcjob_uuid]
+        if not candidates:
+            if published:
+                raise ValueError("Published attempt selection is invalid")
+            raise LookupError("Selected attempt is unavailable")
+        for child in candidates:
+            stored_attempt, _ = _export_child_identity(child)
+            if attempt is not None and stored_attempt != attempt:
+                message = ("Published attempt selection is invalid" if published else
+                           "Attempt and CalcJob UUID select different children")
+                raise ValueError(message)
+    elif attempt is not None:
+        candidates = [child for child in candidates if _attempt(child) == attempt]
+    if len(candidates) > 1:
+        raise ValueError("Multiple attempts exist; select an exact attempt or CalcJob UUID")
+    if not candidates:
+        raise LookupError("Selected attempt is unavailable")
+    effective_attempt, effective_uuid = _export_child_identity(candidates[0])
+    # Always explicit: _select_child must never reread a changing publication.
+    child = _select_child(node, execution_id, attempt=effective_attempt,
+                          calcjob_uuid=effective_uuid)
+    if _export_child_identity(child) != (effective_attempt, effective_uuid):
+        raise ValueError("Selected child identity is invalid")
+    return child, effective_attempt, effective_uuid
+
+
+def get_export_selection(identifier: str, execution_id: str, *, attempt=None,
+                         calcjob_uuid=None) -> dict[str, Any]:
+    """Return detached exact child identity and its recorded scientific status."""
+    child, attempt, calcjob_uuid = _export_child(
+        identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    status = "unknown"
+    if "result" in child.outputs:
+        try:
+            result = read_json(child.outputs.result, limit=MAX_RESULT_BYTES)
+            status = result.get("status")
+            if (not isinstance(status, str) or status not in {
+                    "running", "completed", "completed_with_warnings", "failed", "cancelled", "paused"}
+                    or result.get("selected_execution_id") != execution_id):
+                raise ValueError("Invalid recorded status or execution identity")
+        except Exception as exception:
+            raise ValueError("Selected scientific result metadata is invalid") from exception
+    return {"execution_id": execution_id, "attempt": attempt,
+            "calcjob_uuid": calcjob_uuid, "status": status}
+
+
+def list_execution_artifacts(identifier: str, execution_id: str, *, attempt=None,
+                             calcjob_uuid=None) -> list[dict[str, Any]]:
+    """Return the selected child's bounded cached inventory without payload I/O."""
+    child, attempt, calcjob_uuid = _export_child(
+        identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    if "retrieved" not in child.outputs or "inventory" not in child.outputs:
+        raise LookupError("Retrieved execution artifact inventory is unavailable")
+    try:
+        inventory = child.outputs.inventory.get_dict()
+        if (not isinstance(inventory, dict) or inventory.get("complete") is not True
+                or not isinstance(inventory.get("files"), list)
+                or len(inventory["files"]) > MAX_ARTIFACTS):
+            raise ValueError("Invalid inventory")
+        files, paths = [], set()
+        for row in inventory["files"]:
+            if not isinstance(row, dict) or not isinstance(row.get("path"), str):
+                raise ValueError("Invalid artifact row")
+            path, size = row["path"], row.get("size")
+            _artifact_path(path)
+            if path in paths or type(size) is not int or size < 0:
+                raise ValueError("Invalid artifact path or size")
+            paths.add(path)
+            files.append({"execution_id": execution_id, "attempt": attempt,
+                          "calcjob_uuid": calcjob_uuid, "path": path, "size": size})
+    except Exception as exception:
+        raise ValueError("Selected artifact inventory is invalid or incomplete") from exception
+    return sorted(files, key=lambda row: row["path"])
 
 
 def list_runs(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
