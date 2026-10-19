@@ -131,6 +131,7 @@ The service API in `aiida_qcl_negf.service` is used by
 [`qcl-negf-portal`](https://github.com/Afonenko-QCL-NEGF/qcl-negf-portal). It needs an already
 loaded profile. Authentication, allowed Code UUIDs and request limits belong to
 the caller. See [service API](docs/service.md).
+See the [exact-child composite export selection contract](docs/export-selection.md).
 
 ## Agent report files
 
