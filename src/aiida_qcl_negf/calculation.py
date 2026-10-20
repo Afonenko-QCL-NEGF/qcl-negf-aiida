@@ -36,6 +36,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.input("metadata.options.output_filename", default="solver.stdout")
         spec.output("result", valid_type=orm.SinglefileData, required=False)
         spec.output("inventory", valid_type=orm.Dict, required=False)
+        spec.output("model_help_index", valid_type=orm.Dict, required=False)
         spec.output("recovery_bundle", valid_type=orm.FolderData, required=False)
         spec.output("recovery_receipt", valid_type=orm.Dict, required=False)
         spec.output("prior_archive", valid_type=orm.FolderData, required=False)
