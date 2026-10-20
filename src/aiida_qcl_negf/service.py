@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
@@ -35,6 +36,10 @@ from .validation import (
 )
 from .workflow import QCLPlanWorkChain
 from .recovery import MAX_ARCHIVE_BYTES
+from .model_help import (HELP_MAX_BYTES, HELP_INDEX_BYTES, _help_context,
+                         _help_candidates, _help_path, _validate_help_snapshot,
+                         _HelpSnapshotError)
+from qcl_negf_contracts import schema_validator
 
 PROCESS_TYPE = "aiida.workflows:qcl_negf.plan"
 MAX_ARTIFACTS = 10000
@@ -130,7 +135,7 @@ def _export_child_identity(child):
     return attempt, uuid
 
 
-def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
+def _export_child_context(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
     """Validate an export request and bind existing selection authority once."""
     identifier = _export_uuid(identifier, "A full process UUID is required")
     if not isinstance(execution_id, str) or not 1 <= len(execution_id) <= 128:
@@ -196,6 +201,12 @@ def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
                           calcjob_uuid=effective_uuid)
     if _export_child_identity(child) != (effective_attempt, effective_uuid):
         raise ValueError("Selected child identity is invalid")
+    return node, child, effective_attempt, effective_uuid
+
+
+def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
+    _, child, effective_attempt, effective_uuid = _export_child_context(
+        identifier, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
     return child, effective_attempt, effective_uuid
 
 
@@ -301,7 +312,12 @@ def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob
     """
     node = _node(identifier)
     child = _select_child(node, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
-    if "retrieved" not in child.outputs:
+    return _read_export_plan(node, child, execution_id, require_retrieved=True)
+
+
+def _read_export_plan(node, child, execution_id: str, *, require_retrieved: bool = True) -> dict[str, Any]:
+    """Read only an already selected child; never consult publication again."""
+    if require_retrieved and "retrieved" not in child.outputs:
         raise LookupError("Retrieved execution provenance is unavailable")
 
     def read_bounded(handle) -> bytes:
@@ -320,6 +336,9 @@ def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob
     if execution_id not in {item["id"] for item in expected["executions"]}:
         raise LookupError("Execution is absent from the frozen input plan")
 
+    if "retrieved" not in child.outputs:
+        return {"plan": input_bytes, "source": "aiida.input.plan",
+                "sha256": hashlib.sha256(input_bytes).hexdigest(), "bytes": len(input_bytes)}
     repository = child.outputs.retrieved.base.repository
     path = "result/scientific_plan.json"
     try:
@@ -629,3 +648,109 @@ def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None
             yield handle
     except (FileNotFoundError, IsADirectoryError, KeyError) as exception:
         raise LookupError("Artifact not found") from exception
+
+
+def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
+                         attempt: int | None = None,
+                         calcjob_uuid: str | None = None) -> dict[str, Any]:
+    """Detached exact-child C1 bytes. Does not establish actual origin or docs binding."""
+    grammar = r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+    if (not isinstance(execution_id, str) or re.fullmatch(grammar, execution_id) is None
+            or not isinstance(point_id, str) or re.fullmatch(grammar, point_id) is None):
+        raise ValueError("Invalid model-help execution/point selector")
+    node, child, selected_attempt, selected_uuid = _export_child_context(
+        run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    try:
+        frozen = _read_export_plan(node, child, execution_id, require_retrieved=False)
+    except (OSError, KeyError) as exc:
+        raise ValueError("Selected frozen plan is unreadable") from exc
+    plan = decode(frozen["plan"], maximum=MAX_PLAN_BYTES)
+    context = {"run_uuid": node.uuid, "calcjob_uuid": selected_uuid,
+               **_help_context(plan, execution_id, point_id, selected_attempt)}
+
+    def recorded_release(owner):
+        try:
+            retained = owner.inputs.release_id
+        except (AttributeError, KeyError):
+            return None
+        try:
+            value = retained.value
+        except (AttributeError, KeyError) as exc:
+            raise ValueError("Invalid retained release identity") from exc
+        if not isinstance(value, str) or not value:
+            raise ValueError("Invalid retained release identity")
+        return value
+
+    child_release, run_release = recorded_release(child), recorded_release(node)
+    if child_release is not None and run_release is not None and child_release != run_release:
+        raise ValueError("Contradictory retained release identity")
+    response = {"context": context, "input_status": {"status": "unavailable", "reason": "inventory_unavailable"},
+                "frozen_plan": frozen, "execution_input": None, "snapshot": None,
+                "release_id": child_release if child_release is not None else run_release}
+
+    def status(kind, reason):
+        response["input_status"] = {"status": kind, "reason": reason}
+        return response
+
+    if "result" in child.outputs:
+        try:
+            result = read_json(child.outputs.result, limit=MAX_RESULT_BYTES)
+            if result.get("selected_execution_id") != execution_id or not isinstance(result.get("points"), list):
+                raise ValueError("Recorded result execution/points mismatch")
+            rows = [row for row in result["points"] if row["id"] == point_id]
+            if len(rows) > 1:
+                raise ValueError("Duplicate recorded point")
+            if rows:
+                row = rows[0]
+                if (row["execution_id"] != execution_id or type(row["attempt"]) is not int
+                        or not 1 <= row["attempt"] <= selected_attempt):
+                    raise ValueError("Invalid recorded point attempt")
+                if row["attempt"] < selected_attempt:
+                    return status("unavailable", "point_not_executed_by_selected_child")
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            raise ValueError("Selected scientific point metadata is invalid") from exc
+    if any(name not in child.outputs for name in ("retrieved", "inventory", "model_help_index")):
+        return response
+    try:
+        inventory = child.outputs.inventory.get_dict()
+        files = _help_candidates(inventory, plan)
+        index = child.outputs.model_help_index.get_dict()
+        # C1/finite/caps only. Never call C2's full-index validator or read siblings.
+        from qcl_negf_contracts.messages import encode
+        raw_index = encode(index)
+        if len(raw_index) > HELP_INDEX_BYTES:
+            raise ValueError("Model-help index cap")
+        index = decode(raw_index, maximum=HELP_INDEX_BYTES)
+        schema_validator("model-help.schema.json").validate(index)
+        if index["format"] != "qcl-negf.model-help-index.v1" or index["complete"] is not True or len(index["entries"]) > min(len(plan["points"]), MAX_ARTIFACTS):
+            raise ValueError("Incomplete model-help index")
+    except Exception:
+        return status("unavailable", "inventory_incomplete")
+    path = f"result/executions/{execution_id}/{point_id}/attempt-{selected_attempt}/model-help-inputs.json"
+    generic = [row for row in files if row["path"] == path]
+    matches = [row for row in index["entries"] if row["path"] == path or
+               (row["execution_id"], row["point_id"], row["attempt"]) == (execution_id, point_id, selected_attempt)]
+    if not generic and not matches:
+        return status("unavailable", "snapshot_missing")
+    if generic and not matches:
+        return status("unavailable", "inventory_incomplete")
+    if len(generic) != 1 or len(matches) != 1:
+        return status("invalid", "snapshot_invalid")
+    row = matches[0]
+    if (row["path"] != path or _help_path(path) != (row["execution_id"], row["point_id"], row["attempt"])
+            or row["status"] != "valid" or row["reason"] != "ok"
+            or type(row["bytes"]) is not int or not 0 <= row["bytes"] <= HELP_MAX_BYTES
+            or row["bytes"] != generic[0]["size"]):
+        return status("invalid", "snapshot_invalid")
+    try:
+        with child.outputs.retrieved.base.repository.open(path, "rb") as handle:
+            raw = handle.read(row["bytes"] + 1)
+        digest = hashlib.sha256(raw).hexdigest()
+        if len(raw) != row["bytes"] or digest != row["sha256"]:
+            return status("invalid", "snapshot_invalid")
+        snapshot = _validate_help_snapshot(raw, plan=plan, execution_id=execution_id,
+                                           point_id=point_id, attempt=selected_attempt)
+    except (ValueError, TypeError, KeyError, OSError, _HelpSnapshotError):
+        return status("invalid", "snapshot_invalid")
+    response.update(execution_input={"bytes": raw, "sha256": digest}, snapshot=snapshot)
+    return status("available", "ok")

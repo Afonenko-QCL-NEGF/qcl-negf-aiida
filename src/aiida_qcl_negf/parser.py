@@ -13,6 +13,7 @@ from qcl_negf_contracts.messages import decode
 
 from .validation import MAX_RESULT_BYTES
 from .data import read_plan
+from .model_help import _build_help_index
 from .recovery import (pin_result_commits, prior_archive_data, read_metadata, recovery_data,
                        select_recovery, verify_pause_receipt, verify_prior_archive)
 
@@ -38,10 +39,18 @@ class QCLExecutionParser(Parser):
                 files.append({"path": path, "size": size})
             if not complete:
                 break
-        self.out("inventory", orm.Dict(dict={"complete": complete, "files": files}))
+        files.sort(key=lambda row: row["path"])
+        inventory = {"complete": complete, "files": files}
+        self.out("inventory", orm.Dict(dict=inventory))
         plan = read_plan(self.node.inputs.plan)
         execution_id = self.node.inputs.execution_id.value
         attempt = self.node.inputs.attempt.value
+        def read_help(path, maximum):
+            with repository.open(path, "rb") as handle:
+                return handle.read(maximum + 1)
+        self.out("model_help_index", orm.Dict(dict=_build_help_index(
+            inventory=inventory, plan=plan, execution_id=execution_id,
+            attempt=attempt, read=read_help)))
         if not complete:
             return self.exit_codes.ERROR_INVALID_RESULT
         paths = [item["path"] for item in files]
