@@ -21,6 +21,8 @@ class QCLExecutionParser(Parser):
     """Store validated result metadata alongside the immutable retrieved artifacts."""
 
     def parse(self, **kwargs):
+        if "b0_reference" in self.node.inputs:
+            return self._parse_b0()
         # Cache sizes once after retrieval. Repeated portal polling must not seek
         # through every large compressed HDF5 object in the repository.
         files = []
@@ -130,3 +132,24 @@ class QCLExecutionParser(Parser):
             return self.exit_codes.ERROR_SCIENTIFIC_FAILURE
         if any(not point["converged"] for point in result["points"]):
             return self.exit_codes.ERROR_UNCONVERGED_RESULT
+
+    def _parse_b0(self):
+        from .b0 import (B0_CONTROL_FILES, B0_REPORT_LIMIT,
+                         resume_controller, validate_delivery)
+        controller = resume_controller(self.node.inputs.b0_reference.value, self.node.uuid)
+        with controller.operation("parse_bound_report"):
+            # Native port enumerates at most the admitted exact files and rejects
+            # unexpected entries BEFORE opening/transferring any payload. It also
+            # verifies worker quiescence, identities, leases, hash and receiver ACK.
+            delivery = controller.backend.read_delivery(controller.native,
+                self.retrieved.base.repository, B0_CONTROL_FILES, B0_REPORT_LIMIT)
+            plan = read_plan(self.node.inputs.plan)
+            validate_delivery(delivery, execution_id=self.node.inputs.execution_id.value,
+                              plan_fingerprint=plan["fingerprint"], node_uuid=self.node.uuid)
+            self.out("delivery", orm.Dict(dict=delivery))
+            # A bounded local report does not imply full raw repository retrieval
+            # or scientific acceptance. The independent reader owns scientific
+            # criteria; this parser never turns a report/exit code into pass.
+            if delivery["raw_delivery"] == "raw_delivery_pending":
+                return self.exit_codes.B0_LOCAL_RAW_DELIVERY_PENDING
+            return self.exit_codes.ERROR_SCIENTIFIC_FAILURE

@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import re
+import hashlib
 import json
 from pathlib import PurePosixPath
 from typing import Any
 
 from jsonschema import ValidationError
 from qcl_negf_contracts import schema_validator
-from qcl_negf_contracts.messages import scientific_plan
+from qcl_negf_contracts.messages import decode, scientific_plan
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 MAX_PLAN_BYTES = 16 * 1024 * 1024
 MAX_RESULT_BYTES = 32 * 1024 * 1024
+# Bootstrap-prepaid packaged schema loading. Per-request validation below only
+# visits this in-memory offline registry; it never reads schema resources.
+_PLAN_VALIDATOR = schema_validator("scientific-plan.schema.json")
 
 
 def validate_scratch_root(value: str) -> str:
@@ -37,7 +41,7 @@ def validate_plan(value: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Frozen plan exceeds the input size limit")
     scientific_plan(value)
     try:
-        schema_validator("scientific-plan.schema.json").validate(value)
+        _PLAN_VALIDATOR.validate(value)
     except ValidationError as exception:
         path = ".".join(str(part) for part in exception.absolute_path)
         raise ValueError(f"Invalid scientific plan at {path or '$'}: {exception.message[:300]}") from exception
@@ -108,3 +112,23 @@ def scheduler_options(resources: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(f"Invalid {field}")
             options[field] = resources[field]
     return options
+
+
+def validated_plan_bytes(plan: dict[str, Any] | str | bytes):
+    """Pure memory validation, preserving the caller's exact frozen JSON bytes.
+
+    No profile, ORM, repository, temporary file, gate or queue access belongs here.
+    Schema registry was loaded during separately prepaid module bootstrap.
+    """
+    if isinstance(plan, dict):
+        raw = json.dumps(plan, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    elif isinstance(plan, str):
+        raw = plan.encode("utf-8")
+    elif isinstance(plan, bytes):
+        raw = plan
+    else:
+        raise ValueError("A plan must be a JSON object, string or bytes")
+    if len(raw) > MAX_PLAN_BYTES:
+        raise ValueError("Frozen plan exceeds the input size limit")
+    metadata = validate_plan(decode(raw, maximum=MAX_PLAN_BYTES))
+    return raw, hashlib.sha256(raw).hexdigest(), metadata

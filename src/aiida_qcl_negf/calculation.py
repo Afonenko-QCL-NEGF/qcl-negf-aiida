@@ -29,6 +29,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.input("prior_archive", valid_type=orm.FolderData, required=False)
         spec.input("archive_byte_budget", valid_type=orm.Int, default=lambda: orm.Int(MAX_ARCHIVE_BYTES))
         spec.input("release_id", valid_type=orm.Str, required=False)
+        spec.input("b0_reference", valid_type=orm.Str, required=False)
         spec.input("scratch_root", valid_type=orm.Str, required=False,
                    help="Trusted node-local directory; the runner stages a verified result tree back")
         spec.input("metadata.options.parser_name", default="qcl_negf.execution")
@@ -36,6 +37,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.input("metadata.options.output_filename", default="solver.stdout")
         spec.output("result", valid_type=orm.SinglefileData, required=False)
         spec.output("inventory", valid_type=orm.Dict, required=False)
+        spec.output("delivery", valid_type=orm.Dict, required=False)
         spec.output("recovery_bundle", valid_type=orm.FolderData, required=False)
         spec.output("recovery_receipt", valid_type=orm.Dict, required=False)
         spec.output("prior_archive", valid_type=orm.FolderData, required=False)
@@ -45,6 +47,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.exit_code(302, "ERROR_SCIENTIFIC_FAILURE", message="The solver reported scientific failure or incomplete execution")
         spec.exit_code(303, "ERROR_UNCONVERGED_RESULT", message="One or more scientific points did not converge")
         spec.exit_code(304, "PAUSED_WITH_RECOVERY", message="Attempt paused after a verified recovery publication")
+        spec.exit_code(306, "B0_LOCAL_RAW_DELIVERY_PENDING", message="Local raw verified; bounded repository delivery is pending")
         spec.exit_code(305, "ERROR_INVALID_RECOVERY", message="Recovery or pause receipt is missing, corrupt or incompatible")
 
     def _setup_metadata(self, metadata):
@@ -62,6 +65,14 @@ class QCLExecutionCalculation(CalcJob):
         super()._setup_metadata(metadata)
 
     def prepare_for_submission(self, folder):
+        if "b0_reference" in self.inputs:
+            from .b0 import resume_controller
+            controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
+            with controller.operation("prepare_bound_calcjob"):
+                return self._prepare_for_submission(folder)
+        return self._prepare_for_submission(folder)
+
+    def _prepare_for_submission(self, folder):
         plan = validate_plan(read_plan(self.inputs.plan))
         execution_id = self.inputs.execution_id.value
         if execution_id not in {execution["id"] for execution in plan["executions"]}:
@@ -89,6 +100,11 @@ class QCLExecutionCalculation(CalcJob):
             raise ValueError("Set a positive num_cores_per_mpiproc")
         if self.options.environment_variables.get("JULIA_NUM_THREADS") != str(cores):
             raise ValueError("JULIA_NUM_THREADS must match num_cores_per_mpiproc")
+        if "b0_reference" in self.inputs:
+            if (self.inputs.attempt.value != 1 or "release_id" not in self.inputs
+                    or "recovery_bundle" in self.inputs or "prior_archive" in self.inputs
+                    or self.inputs.code.computer.scheduler_type != "core.slurm"):
+                raise ValueError("B0 requires one guarded Slurm attempt without restart inputs")
         with self.inputs.plan.open(mode="rb") as source:
             encoded = source.read(MAX_PLAN_BYTES + 1)
         if len(encoded) > MAX_PLAN_BYTES:
@@ -99,6 +115,12 @@ class QCLExecutionCalculation(CalcJob):
         code.code_uuid = self.inputs.code.uuid
         code.cmdline_params = ["run-plan", "plan.json", "result", "--execution-id", execution_id]
         code.cmdline_params.extend(["--attempt", str(self.inputs.attempt.value)])
+        if "b0_reference" in self.inputs:
+            from .b0 import ROOT_HELPER
+            code.cmdline_params[0] = "run-bound-b0"
+            code.cmdline_params.extend(["--root-slot-ref", self.inputs.b0_reference.value,
+                                        "--root-helper", ROOT_HELPER])
+
         if "recovery_bundle" in self.inputs:
             from .recovery import read_metadata, verify_bundle, verify_prior_archive
             # Runner rechecks numerical compatibility before importing this state.
@@ -141,6 +163,12 @@ class QCLExecutionCalculation(CalcJob):
             "series_result.json", "scientific_plan.json", "pause-receipt.json",
             "retrieval-manifest.json", "archive", "recovery", "executions")]
         info.retrieve_list.extend([self.options.output_filename, "solver.stderr"])
+        if "b0_reference" in self.inputs:
+            from .b0 import B0_CONTROL_FILES, validate_retrieval
+            # Native transport port gates these exact files on quiescence +
+            # pre-reserved sender/receiver leases before transfer. No raw glob.
+            info.retrieve_list = list(validate_retrieval(B0_CONTROL_FILES))
+
         if "recovery_bundle" in self.inputs:
             info.local_copy_list = [(self.inputs.recovery_bundle.uuid, ".", "recovery")]
         if "prior_archive" in self.inputs:

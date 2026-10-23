@@ -124,14 +124,21 @@ class QCLPlanWorkChain(WorkChain):
         spec.input("retry_backoff_seconds", valid_type=orm.Int, default=lambda: orm.Int(10))
         spec.input("archive_byte_budget", valid_type=orm.Int, default=lambda: orm.Int(MAX_ARCHIVE_BYTES))
         spec.input("release_id", valid_type=orm.Str, required=False)
+        spec.input("b0_reference", valid_type=orm.Str, required=False)
         spec.output_namespace("results", dynamic=True, valid_type=orm.SinglefileData)
         spec.output_namespace("artifacts", dynamic=True, valid_type=orm.FolderData)
         spec.output_namespace("selections", dynamic=True, valid_type=orm.Dict)
+        spec.output_namespace("deliveries", dynamic=True, valid_type=orm.Dict)
         spec.exit_code(400, "ERROR_EXECUTION_FAILED", message="At least one execution failed; partial outputs are retained")
         spec.exit_code(401, "ERROR_INVALID_PLAN", message="Plan or resources are not supported")
         spec.outline(cls.setup, while_(cls.has_pending)(cls.submit_ready, cls.inspect_batch), cls.finalize)
 
     def setup(self):
+        if "b0_reference" in self.inputs:
+            from .b0 import resume_controller
+            controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
+            with controller.operation("workchain_setup"):
+                return self._setup_b0()
         try:
             plan = validate_plan(read_plan(self.inputs.plan))
             self.ctx.options = scheduler_options(self.inputs.resources.get_dict())
@@ -151,10 +158,47 @@ class QCLPlanWorkChain(WorkChain):
         self.ctx.batch = {}
         self.ctx.sequence = 0
 
+    def _setup_b0(self):
+        from .b0 import B0Refusal
+        plan = validate_plan(read_plan(self.inputs.plan))
+        if (self.inputs.max_attempts.value != 1 or self.inputs.max_concurrent.value != 1
+                or self.inputs.retry_backoff_seconds.value != 0 or len(plan["executions"]) != 1):
+            raise B0Refusal("B0 forbids parallel children, restarts and backoff")
+        self.ctx.options = scheduler_options(self.inputs.resources.get_dict())
+        self.ctx.pending = [plan["executions"][0]["id"]]
+        self.ctx.failed, self.ctx.batch, self.ctx.sequence = [], {}, 0
+
+    def _submit_b0(self):
+        from .b0 import B0Refusal, resume_controller
+        controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
+        with controller.operation("create_calcjob"):
+            if self.ctx.sequence != 0 or len(self.ctx.pending) != 1:
+                raise B0Refusal("B0 CalcJob construction is single use")
+            self.ctx.sequence = 1  # Failure/uncertainty cannot reconstruct a job.
+            identifier = self.ctx.pending.pop()
+            options = dict(self.ctx.options)
+            arguments = dict(code=self.inputs.code, plan=self.inputs.plan,
+                execution_id=orm.Str(identifier), attempt=orm.Int(1),
+                release_id=self.inputs.release_id, b0_reference=self.inputs.b0_reference,
+                metadata={"label": identifier, "call_link_label": "execution_0", "options": options})
+            if "scratch_root" in self.inputs:
+                arguments["scratch_root"] = self.inputs.scratch_root
+            # AiiDA Runner accepts an already instantiated Process. Instantiation
+            # in the active WorkChain context creates the genuine child CALL link.
+            process = self.runner.instantiate_process(QCLExecutionCalculation, **arguments)
+            process.node.store()
+            controller.refine("calcjob", process.node)
+        with controller.operation("enqueue_calcjob"):
+            child = controller.enqueue("calcjob", process, self.runner)
+            self.ctx.batch = {"execution_0": identifier}
+            return ToContext(execution_0=child)
+
     def has_pending(self):
         return bool(self.ctx.pending)
 
     def submit_ready(self):
+        if "b0_reference" in self.inputs:
+            return self._submit_b0()
         self.ctx.batch = {}
         futures = {}
         for identifier in list(self.ctx.pending)[: self.inputs.max_concurrent.value]:
@@ -183,8 +227,18 @@ class QCLPlanWorkChain(WorkChain):
         return ToContext(**futures)
 
     def inspect_batch(self):
+        if "b0_reference" in self.inputs:
+            from .b0 import resume_controller
+            controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
+            with controller.operation("workchain_inspect"):
+                return self._inspect_batch()
+        return self._inspect_batch()
+
+    def _inspect_batch(self):
         for key, identifier in self.ctx.batch.items():
             child = self.ctx[key]
+            if "b0_reference" in self.inputs and "delivery" in child.outputs:
+                self.out(f"deliveries.{key}", child.outputs.delivery)
             # Link labels use stable ordinal keys because scientific IDs may contain dots.
             if "result" in child.outputs:
                 self.out(f"results.{key}", child.outputs.result)
@@ -197,6 +251,14 @@ class QCLPlanWorkChain(WorkChain):
                 self.report(f"Execution {identifier} failed with exit status {child.exit_status}")
 
     def finalize(self):
+        if "b0_reference" in self.inputs:
+            from .b0 import resume_controller
+            controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
+            with controller.operation("workchain_finalize"):
+                return self._finalize()
+        return self._finalize()
+
+    def _finalize(self):
         if self.ctx.failed:
             self.report(f"Failed: {self.ctx.failed}")
             return self.exit_codes.ERROR_EXECUTION_FAILED
