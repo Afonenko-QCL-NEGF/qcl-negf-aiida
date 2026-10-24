@@ -130,7 +130,8 @@ def _export_child_identity(child):
     return attempt, uuid
 
 
-def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
+def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None,
+                  _bound_node=None):
     """Validate an export request and bind existing selection authority once."""
     identifier = _export_uuid(identifier, "A full process UUID is required")
     if not isinstance(execution_id, str) or not 1 <= len(execution_id) <= 128:
@@ -139,7 +140,7 @@ def _export_child(identifier, execution_id, *, attempt=None, calcjob_uuid=None):
         raise ValueError("Require a positive attempt")
     if calcjob_uuid is not None:
         calcjob_uuid = _export_uuid(calcjob_uuid, "A full CalcJob UUID is required")
-    node = _node(identifier)
+    node = _node(identifier) if _bound_node is None else _bound_node
     published = False
     if attempt is None and calcjob_uuid is None:
         try:
@@ -261,7 +262,12 @@ def get_run(identifier: str) -> dict[str, Any]:
     """Read the current workflow and scientific outputs, including partial results."""
     node = _node(identifier)
     response = _summary(node)
-    response["plan_fingerprint"] = read_plan(node.inputs.plan)["fingerprint"]
+    plan = read_plan(node.inputs.plan)
+    response["plan_fingerprint"] = plan["fingerprint"]
+    response["plan_points"] = [
+        {key: point[key] for key in ("id", "execution_id", "temperature_K", "voltage_per_period_V")}
+        for point in plan["points"]
+    ]
     response["results"] = {}
     response["children"] = []
     remaining = MAX_RESPONSE_BYTES - len(json.dumps(response, ensure_ascii=False).encode("utf-8")) - 1024
@@ -303,6 +309,16 @@ def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob
     child = _select_child(node, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
     if "retrieved" not in child.outputs:
         raise LookupError("Retrieved execution provenance is unavailable")
+    return _frozen_plan_for_child(node, child, execution_id)
+
+
+def _frozen_plan_for_child(node, child, execution_id) -> dict[str, Any]:
+    """Read one already selected child's frozen plan, closing all actor handles.
+
+    Running children may have only the original input. If a retrieved object is
+    present, its corruption or read failure must never become an input fallback.
+    Callers needing completed export provenance enforce that gate separately.
+    """
 
     def read_bounded(handle) -> bytes:
         raw = handle.read(MAX_PLAN_BYTES + 1)
@@ -320,6 +336,9 @@ def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob
     if execution_id not in {item["id"] for item in expected["executions"]}:
         raise LookupError("Execution is absent from the frozen input plan")
 
+    if "retrieved" not in child.outputs:
+        return {"plan": input_bytes, "source": "aiida.input.plan",
+                "sha256": hashlib.sha256(input_bytes).hexdigest(), "bytes": len(input_bytes)}
     repository = child.outputs.retrieved.base.repository
     path = "result/scientific_plan.json"
     try:
@@ -337,6 +356,78 @@ def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob
         source = "aiida.retrieved:result/scientific_plan.json"
     return {"plan": raw, "source": source, "sha256": hashlib.sha256(raw).hexdigest(),
             "bytes": len(raw)}
+
+
+def _model_help_release(node, child) -> str | None:
+    """Use immutable process inputs only; current deployment is not history."""
+    recorded = []
+    for owner in (node, child):
+        try:
+            release = owner.inputs.release_id
+        except (AttributeError, KeyError):
+            continue
+        try:
+            value = release.value
+        except (AttributeError, KeyError) as exception:
+            raise ValueError("Recorded release identity is invalid") from exception
+        if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
+            raise ValueError("Recorded release identity is invalid")
+        recorded.append(value)
+    if len(set(recorded)) > 1:
+        raise ValueError("Selected child and workflow release identities differ")
+    return recorded[0] if recorded else None
+
+
+def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
+                         attempt: int | None = None,
+                         calcjob_uuid: str | None = None) -> dict[str, Any]:
+    """Return exact selected context and bounded bytes, without inferred values.
+
+    This read-only seam supplies no retained source binding or declared/used
+    projection. A point's recorded configuration hash is identity metadata, not
+    proof of a reconstructed configuration or scientific acceptance.
+    """
+    # Malformed selectors stay ordinary validation errors, outside the small
+    # selection-conflict DTO boundary below.
+    run_uuid = _export_uuid(run_uuid, "A full process UUID is required")
+    for value in (execution_id, point_id):
+        if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
+            raise ValueError("Execution and point IDs must be portable identifiers")
+    if attempt is not None and (type(attempt) is not int or attempt < 1):
+        raise ValueError("Require a positive attempt")
+    if calcjob_uuid is not None:
+        calcjob_uuid = _export_uuid(calcjob_uuid, "A full CalcJob UUID is required")
+    node = _node(run_uuid)
+    try:
+        child, selected_attempt, selected_uuid = _export_child(
+            run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid,
+            _bound_node=node)
+    except ValueError:
+        return {"error": "selection_conflict"}
+    # No error after selection is relabelled as a conflict or normal unknown.
+    frozen = _frozen_plan_for_child(node, child, execution_id)
+    plan = decode(frozen["plan"], maximum=MAX_PLAN_BYTES)
+    points = [point for point in plan["points"]
+              if point["id"] == point_id and point["execution_id"] == execution_id]
+    if len(points) != 1:
+        raise LookupError("Point is absent from the selected frozen execution")
+    point = points[0]
+    passport = point["effective_inputs"]
+    if any(passport[key] != point[key] for key in ("temperature_K", "voltage_per_period_V")):
+        raise ValueError("Frozen point passport axes disagree with the selected point")
+    return {
+        "context": {"run_uuid": _export_uuid(node.uuid, "Run identity is invalid"),
+                    "execution_id": execution_id, "point_id": point_id,
+                    "attempt": selected_attempt, "calcjob_uuid": selected_uuid,
+                    "plan_fingerprint": plan["fingerprint"],
+                    "scientific_fingerprint": plan["scientific_fingerprint"],
+                    "configuration_hash": passport["configuration_hash"],
+                    "model_revision": plan["model_revision"]},
+        "frozen_plan": {"bytes": frozen["plan"], "sha256": frozen["sha256"]},
+        "snapshot": None,
+        "input_status": {"status": "unavailable", "reason": "inventory_unavailable"},
+        "release_id": _model_help_release(node, child),
+    }
 
 
 def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *,
