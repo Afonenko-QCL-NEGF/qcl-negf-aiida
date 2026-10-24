@@ -432,8 +432,16 @@ def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
 
 def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *,
                 scratch_root: str | None = None, release_id: str | None = None, max_attempts: int = 3,
-                retry_backoff_seconds: int = 10, archive_byte_budget: int = MAX_ARCHIVE_BYTES) -> dict[str, Any]:
+                retry_backoff_seconds: int = 10, archive_byte_budget: int = MAX_ARCHIVE_BYTES,
+                b0_slot=None) -> dict[str, Any]:
     """Submit a frozen plan to the daemon after validating every admission input."""
+    if b0_slot is not None:
+        from .validation import validated_plan_bytes
+        from .b0 import submit_bound_plan
+        raw, digest, metadata = validated_plan_bytes(plan)
+        return submit_bound_plan(raw, digest, metadata, code_uuid, resources, label,
+            slot=b0_slot, release_id=release_id, scratch_root=scratch_root,
+            max_attempts=max_attempts)
     plan_node = plan_data(plan)
     scheduler_options(resources)
     if type(max_attempts) is not int or not 1 <= max_attempts <= 100:
@@ -497,6 +505,42 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
         raise RuntimeError("AiiDA daemon is not running")
     node = submit(QCLPlanWorkChain, code=code, plan=plan_node, resources=orm.Dict(dict=resources), metadata={"label": label}, **options)
     return _summary(node)
+
+
+def _bound_release_code(code_uuid, release_id):
+    """Same deployed gate/InstalledCode predicates, mandatory for B0.
+
+    Only called inside an authenticated controller operation covering the gate
+    file, profile, ORM lookup and daemon/broker producer paths.
+    """
+    deployment_release = os.environ.get("QCL_NEGF_RELEASE_ID")
+    deployment_solver = os.environ.get("QCL_NEGF_SOLVER_EXECUTABLE")
+    gate = os.environ.get("QCL_NEGF_RELEASE_GATE", "/srv/qcl-negf/jobs/.release-admission.json")
+    if not deployment_release or not deployment_solver:
+        raise ValueError("B0 requires deployed release and immutable solver")
+    if not IDENTIFIER.fullmatch(deployment_release) or release_id not in (None, deployment_release):
+        raise ValueError("B0 release identity mismatch")
+    path = PurePosixPath(deployment_solver)
+    if (not deployment_solver.startswith("/nix/store/") or ".." in path.parts
+            or str(path) != deployment_solver or any(ord(c) < 32 for c in deployment_solver)):
+        raise ValueError("B0 solver must be an immutable Nix path")
+    if (not Path(gate).is_absolute() or ".." in PurePosixPath(gate).parts
+            or str(PurePosixPath(gate)) != gate or any(ord(c) < 32 for c in gate)):
+        raise ValueError("Invalid B0 release admission path")
+    with Path(gate).open("rb") as stream:
+        admission = decode(stream.read(64 * 1024 + 1), maximum=64 * 1024)
+    if (not isinstance(admission, dict) or admission.get("open") is not True
+            or admission.get("release_id") != deployment_release):
+        raise ValueError("B0 deployment admission gate is closed or mismatched")
+    code = orm.load_code(code_uuid)
+    if (not isinstance(code, orm.InstalledCode)
+            or code.default_calc_job_plugin != "qcl_negf.execution"
+            or str(code.filepath_executable) != deployment_solver
+            or code.computer.scheduler_type != "core.slurm"):
+        raise ValueError("B0 requires matching immutable InstalledCode and Slurm Computer")
+    if not get_daemon_client().is_daemon_running:
+        raise RuntimeError("AiiDA daemon is not running")
+    return code, deployment_release
 
 
 def _agent_report_uuid(identifier: str) -> str:
