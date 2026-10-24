@@ -21,10 +21,16 @@ from aiida.common.exceptions import NotExistent
 from aiida.engine import submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.control import kill_processes
+from qcl_negf_contracts.agent_reports import (
+    MAX_AGENT_REPORT_BYTES,
+    validate_agent_report,
+)
+from qcl_negf_contracts.agent_reports import SCHEMA as AGENT_REPORT_SCHEMA
 from qcl_negf_contracts.messages import decode
-from qcl_negf_contracts.agent_reports import MAX_AGENT_REPORT_BYTES, SCHEMA as AGENT_REPORT_SCHEMA, validate_agent_report
 
 from .data import plan_data, read_json, read_plan
+from .recovery import MAX_ARCHIVE_BYTES
+from .run_structure import project_run_structure
 from .validation import (
     IDENTIFIER,
     MAX_PLAN_BYTES,
@@ -34,7 +40,6 @@ from .validation import (
     validate_scratch_root,
 )
 from .workflow import QCLPlanWorkChain
-from .recovery import MAX_ARCHIVE_BYTES
 
 PROCESS_TYPE = "aiida.workflows:qcl_negf.plan"
 MAX_ARTIFACTS = 10000
@@ -264,6 +269,7 @@ def get_run(identifier: str) -> dict[str, Any]:
     response = _summary(node)
     plan = read_plan(node.inputs.plan)
     response["plan_fingerprint"] = plan["fingerprint"]
+    response["plan_structure"] = project_run_structure(plan)
     response["plan_points"] = [
         {key: point[key] for key in ("id", "execution_id", "temperature_K", "voltage_per_period_V")}
         for point in plan["points"]
@@ -271,6 +277,8 @@ def get_run(identifier: str) -> dict[str, Any]:
     response["results"] = {}
     response["children"] = []
     remaining = MAX_RESPONSE_BYTES - len(json.dumps(response, ensure_ascii=False).encode("utf-8")) - 1024
+    if remaining < 1:
+        raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
     for child in _children(node):
         execution_id = child.inputs.execution_id.value
         summary = _summary(child)
@@ -436,8 +444,8 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
                 b0_slot=None) -> dict[str, Any]:
     """Submit a frozen plan to the daemon after validating every admission input."""
     if b0_slot is not None:
-        from .validation import validated_plan_bytes
         from .b0 import submit_bound_plan
+        from .validation import validated_plan_bytes
         raw, digest, metadata = validated_plan_bytes(plan)
         return submit_bound_plan(raw, digest, metadata, code_uuid, resources, label,
             slot=b0_slot, release_id=release_id, scratch_root=scratch_root,

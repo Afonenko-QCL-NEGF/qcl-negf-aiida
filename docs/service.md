@@ -109,3 +109,31 @@ The caller must authenticate requests, restrict the permitted installed Code
 UUIDs and cap resource requests against site policy. It must bound artifact
 downloads separately. The module provides no network listener, shared secret
 store, arbitrary shell execution endpoint, or additional queue.
+
+## Read-only frozen-plan structure
+
+`get_run` additionally returns `plan_structure`, from the same single retained
+plan read as `plan_fingerprint` and `plan_points`. Its available shape is
+`{status, root: {kind, definition_id}, inclusions, executions, points}`.
+Inclusions contain `id,parent_id,definition_id,label,path,execution_ids`;
+executions contain `id,definition_id,variant_id,label,operation,point_ids,voltage_mode`;
+points contain `id,execution_id,branch,order,initialization,predecessor_id,temperature_K,voltage_per_period_V`.
+All values are copied from plan-v2, including `policies.voltage.mode`.
+Only explicit `predecessor_id` defines a dependency; array/order adjacency does
+not. Inclusion execution membership can be shared by several inclusions.
+
+The pure projection checks unique identities/references, acyclic inclusion
+parents, exact execution/point membership and earlier predecessors in the same
+execution, branch and temperature, and finite scalar coordinates (no booleans).
+Unsupported schemas return `{status: "unavailable", reason: "unsupported_plan_schema"}`;
+missing/malformed structure returns reason `unsupported_structure`. This is
+presentation availability, not admission, convergence or scientific acceptance.
+Other detail fields remain readable. The entire response, including the
+projection, retains the existing explicit size refusal without truncation;
+over-budget plan metadata refuses before child result reads.
+
+`children` is the existing flattened observed CalcJob descendant inventory,
+including every exact attempt UUID and process/exit state, not direct CALL
+edges. Execution-level selected results do not establish scientific assessment
+for another attempt or any point. The structure reads no retrieved artifacts,
+HDF5, resolved inputs or host files and never invokes a solver or command.
