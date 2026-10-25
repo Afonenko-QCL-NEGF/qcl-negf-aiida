@@ -137,3 +137,45 @@ including every exact attempt UUID and process/exit state, not direct CALL
 edges. Execution-level selected results do not establish scientific assessment
 for another attempt or any point. The structure reads no retrieved artifacts,
 HDF5, resolved inputs or host files and never invokes a solver or command.
+
+## Native research cards
+
+The existing loaded-profile service exports `create_research_card(request_uuid,
+raw)`, `edit_research_card(card_uuid, request_uuid, base_version_uuid, raw)`,
+`list_research_cards`, `get_research_card`, `list_research_card_versions`,
+`read_research_card_version(card_uuid, version_uuid, raw=False)`,
+`attach_research_card_run(card_uuid, request_uuid, card_version_uuid, run_uuid,
+plan_fingerprint)`, `list_research_card_runs`,
+`attach_research_card_report(card_uuid, request_uuid, card_version_uuid,
+anchor_run_uuid, report_uuid)`, `list_research_card_reports`, and
+`get_research_card_request(request_uuid)`. Lists accept `limit=20, offset=0`.
+
+Card versions are append-only `SinglefileData` retaining exact Contracts raw
+UTF-8 bytes (at most 65536). The first version's native UUID is the stable card
+UUID. Titles and identical contents never establish identity. Every version has
+its own immutable UUID, parent and semantic request hash. Editing requires the
+exact current base, and a request replay is resolved before checking that base.
+There is no head extra, mutable registry or operation ledger. External writers
+are outside the single-owner concurrency contract. Corrupt identity/parent/head
+metadata is refused; listing explicitly refuses a catalogue exceeding 10000
+version nodes rather than silently omitting cards. Individual lists are
+paginated, receipts only; JSON responses are capped at 1 MiB.
+
+Native `Dict` associations pin a card version to a **whole frozen run**, all its
+variants and observed attempts, including failed and nonconverged attempts.
+Analysis associations pin an existing immutable agent-report UUID and SHA-256.
+Before storing an analysis, the owner rechecks its current frozen anchor and
+all exact used-run execution/definition/variant/attempt/CalcJob selectors. Each
+run requires an explicit association to this stable card and its current
+fingerprint, potentially pinned to different versions of this same card. A
+report's `question_snapshot` remains independent author prose. No association
+changes a plan, fingerprint, attempt, scientific assessment or acceptance.
+
+Mutations return `{status: "stored"|"replayed", kind, receipt}` or a known
+pre-store `{status:"rejected", reason}`. Reasons are `not_found`,
+`version_conflict` (also `current_version_uuid`), `request_conflict`,
+`invalid_binding`, `unsupported_plan`. Unexpected constructor/store/post-store
+exceptions propagate to the actor's unknown-outcome fence. A missing request
+receipt does not prove no effect or authorize automatic retry. Readback never
+removes that fence. The fake-ORM controls are source fixtures, not native UUID,
+immutability or restart evidence; the isolated SQLite gate remains separate.
