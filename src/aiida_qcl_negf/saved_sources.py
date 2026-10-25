@@ -24,6 +24,7 @@ MAX_METADATA = 1024*1024
 MAX_RESPONSE = 2*1024*1024
 MAX_POINTS = 256
 PIN_PATH = "_aiida/selection.json"
+PERFORMANCE_PATH = "_aiida/performance-binding.json"
 _bindings = {}
 _pending = {}
 
@@ -296,7 +297,7 @@ def _validate_record(record,metadata,*,request_uuid,request_sha256,selection):
     for point in record["points"]:
         _relative(point["commit_path"]); _hash(point["commit_sha256"]); _hash(point["receipt_sha256"])
         source_attempt=_positive(point["source_attempt"]); row_attempt=_positive(point["row_attempt"])
-        if not source_attempt<=row_attempt<=record["selection"]["attempt"]: _fail("corrupt_result")
+        if not source_attempt<=row_attempt: _fail("corrupt_result")
         if point["source_calcjob_uuid"] is not None: _uuid(point["source_calcjob_uuid"])
         if point["storage_class"] not in ("archive","recovery"): _fail("corrupt_result")
         _positive(point["state_sequence"])
@@ -336,10 +337,21 @@ def _load(node, budget=None):
         _fail("source_identity_mismatch")
     if references.get(PIN_PATH)!=pin_node.uuid or metadata.get(PIN_PATH,"").encode()!=pin_raw:
         _fail("source_identity_mismatch")
-    if any(owner_uuid!=node.uuid for name,owner_uuid in references.items() if name not in ("series_result.json",PIN_PATH)):
+    if PERFORMANCE_PATH in metadata:
+        from .performance_binding import retained_source
+        size=len(metadata[PERFORMANCE_PATH].encode()); budget.charge(size)
+        retained=retained_source(child,maximum=size)
+        if (retained["status"]!="available" or references[PERFORMANCE_PATH]!=retained["sidecar_uuid"]
+                or metadata[PERFORMANCE_PATH]!=retained["sidecar_utf8"]): _fail("source_identity_mismatch")
+    if any(owner_uuid!=node.uuid for name,owner_uuid in references.items() if name not in ("series_result.json",PIN_PATH,PERFORMANCE_PATH)):
         _fail("source_identity_mismatch")
     if metadata.get("series_result.json","").encode()!=series_raw: _fail("source_identity_mismatch")
     series=_json(series_raw,MAX_METADATA)
+    from .science_association import validate_native_collisions
+    validate_native_collisions(series["points"],pin["commits"],input_attempt=record["selection"]["attempt"],
+        execution_id=record["selection"]["execution_id"],plan_fingerprint=record["plan"]["plan_fingerprint"],calcjob_uuid=child.uuid,
+        scientific_fingerprint=record["plan"]["scientific_fingerprint"],result_scientific_fingerprint=series.get("plan_scientific_fingerprint"))
+    source_proofs={child.uuid:(series,pin)}
     rows={row["id"]:row for row in series.get("points",[])}
     plan=_json(plan_raw,MAX_METADATA)
     frozen={point["id"] for point in plan["points"] if point["execution_id"]==record["selection"]["execution_id"]}
@@ -356,7 +368,9 @@ def _load(node, budget=None):
         if (_sha(encoded)!=point["commit_sha256"] or not _same(commit["identity"],point["native_identity"]) or
                 not _same(commit["identity"].get("attempt"),point["source_attempt"]) or
                 not _same(row.get("attempt"),point["row_attempt"])): _fail("source_identity_mismatch")
-        if _source_child_uuid(child,point["source_attempt"],plan_node.uuid)!=point["source_calcjob_uuid"]:
+        if _source_child_uuid(child,point["source_attempt"],plan_node.uuid,point_id=point["point_id"],
+                commit_sha256=point["commit_sha256"],identity=point["native_identity"],proofs=source_proofs,budget=budget,
+                scientific_fingerprint=record["plan"]["scientific_fingerprint"])!=point["source_calcjob_uuid"]:
             _fail("source_identity_mismatch")
         prefix=point["commit_path"].removesuffix("commit.json")
         receipt_raw=metadata.get(prefix+"receipt.json","").encode(); receipt=_json(receipt_raw,MAX_METADATA)
@@ -402,18 +416,11 @@ def _replay(request_uuid,digest):
     return None
 
 
-def _source_child_uuid(child, source_attempt, plan_uuid):
-    if source_attempt==_owner()._export_child_identity(child)[0]: return child.uuid
-    candidates=set()
-    for name in ("recovery_bundle","prior_archive"):
-        try:
-            prior=getattr(child.inputs,name).creator
-            if (prior.inputs.execution_id.value==child.inputs.execution_id.value and
-                    prior.inputs.attempt.value==source_attempt and prior.inputs.plan.uuid==plan_uuid):
-                candidates.add(_uuid(prior.uuid))
-        except (AttributeError,KeyError,ValueError):
-            continue
-    return next(iter(candidates)) if len(candidates)==1 else None
+def _source_child_uuid(child, source_attempt, plan_uuid, *, point_id, commit_sha256, identity,
+                       proofs=None,budget=None,scientific_fingerprint=None):
+    from .science_association import source_point_owner
+    return source_point_owner(child,source_attempt,plan_uuid,point_id=point_id,commit_sha256=commit_sha256,
+                              identity=identity,proofs=proofs,budget=budget,scientific_fingerprint=scientific_fingerprint)
 
 
 def _capture(run_uuid, execution_id, attempt, calcjob_uuid, namespace_id, retention_policy_id,
@@ -456,7 +463,7 @@ def _capture(run_uuid, execution_id, attempt, calcjob_uuid, namespace_id, retent
     if not _same(nfs_plan,plan): _fail("source_identity_mismatch")
     rows=series.get("points")
     if not isinstance(rows,list) or len(rows)>MAX_POINTS: _fail("budget_exceeded")
-    points=[]; seen=set()
+    points=[]; seen=set(); source_proofs={child.uuid:(series,pin)}
     for row in rows:
         if not isinstance(row,dict): _fail("corrupt_result")
         if row.get("execution_id")!=execution_id: _fail("source_identity_mismatch")
@@ -464,12 +471,12 @@ def _capture(run_uuid, execution_id, attempt, calcjob_uuid, namespace_id, retent
         if point_id not in frozen or point_id in seen: _fail("source_identity_mismatch")
         seen.add(point_id)
         row_attempt=_positive(row.get("attempt"))
-        if row_attempt>attempt: _fail("source_identity_mismatch")
         coordinates=row.get("coordinates",{})
         for key in ("temperature_K","voltage_per_period_V","branch","order"):
             if key not in coordinates or not _same(coordinates[key],frozen[point_id].get(key)): _fail("source_identity_mismatch")
         data=row.get("data") or {}
         reference=data.get("result_commit")
+        if row_attempt>attempt and reference is None: _fail("source_identity_mismatch")
         if reference is None: continue
         reference=_relative(reference)
         if not reference.endswith("/commit.json"): _fail("corrupt_result")
@@ -512,7 +519,13 @@ def _capture(run_uuid, execution_id, attempt, calcjob_uuid, namespace_id, retent
                 passport=frozen[point_id].get("effective_inputs",{})
                 if passport.get("configuration_hash") is not None and model["configuration_hash"]!=passport["configuration_hash"]:
                     _fail("source_identity_mismatch")
-        source_uuid=_source_child_uuid(child,source_attempt,plan_node.uuid)
+        from .science_association import validate_native_collisions
+        validate_native_collisions([row],pin["commits"],input_attempt=attempt,execution_id=execution_id,
+            plan_fingerprint=plan["fingerprint"],calcjob_uuid=child.uuid,
+            scientific_fingerprint=plan.get("scientific_fingerprint"),result_scientific_fingerprint=series.get("plan_scientific_fingerprint"))
+        source_uuid=_source_child_uuid(child,source_attempt,plan_node.uuid,point_id=point_id,
+            commit_sha256=commit_digest,identity=identity,proofs=source_proofs,budget=budget,
+            scientific_fingerprint=plan.get("scientific_fingerprint"))
         status={k:row.get(k) for k in ("status","quality","converged")}
         status["scientific_assessment_source_path"]="series_result.json#points/"+point_id+"/observables/scientific_assessment"
         if source_uuid is None: status["source_calcjob_reason"]="explicit_recovery_relation_absent_or_ambiguous"
@@ -538,6 +551,18 @@ def _capture(run_uuid, execution_id, attempt, calcjob_uuid, namespace_id, retent
     if _node_bytes(plan_node,maximum,budget)!=plan_raw: _fail("source_identity_mismatch")
     metadata[PIN_PATH]=pin_raw
     if sum(map(len,metadata.values()))>maximum: _fail("budget_exceeded")
+    performance_uuid=None
+    reference=pin.get("performance_binding")
+    if reference is not None:
+        # Optional sidecar shares the existing retained metadata allowance.
+        # If it cannot fit, retain science as before; performance is unavailable here.
+        size=reference.get("sidecar_bytes")
+        if type(size)is int and 0<size<=min(maximum-sum(map(len,metadata.values())),budget.remaining):
+            from .performance_binding import retained_source
+            performance=retained_source(child,maximum=min(maximum,budget.remaining))
+            if performance["status"]!="available": _fail("source_identity_mismatch")
+            encoded=performance["sidecar_utf8"].encode(); budget.charge(len(encoded))
+            metadata[PERFORMANCE_PATH]=encoded; performance_uuid=performance["sidecar_uuid"]
     record={"schema":SCHEMA,"selection":selection,
         "plan":{"input_node_uuid":plan_node.uuid,"sha256":_sha(plan_raw),"plan_fingerprint":plan["fingerprint"],
                 "scientific_fingerprint":plan.get("scientific_fingerprint")},
@@ -550,6 +575,8 @@ def _capture(run_uuid, execution_id, attempt, calcjob_uuid, namespace_id, retent
         "copy_status":"unknown",
         "request_uuid":None,"request_sha256":None,"registration_source_id":binding["registration_source_id"]}
     record["metadata"]=[{"path":PIN_PATH,"retained_node_uuid":pin_node.uuid}]
+    if performance_uuid is not None:
+        record["metadata"].append({"path":PERFORMANCE_PATH,"retained_node_uuid":performance_uuid})
     return record,metadata,plan_node.uuid,result.uuid,plan_raw
 
 
@@ -600,7 +627,7 @@ def register_saved_source(run_uuid, execution_id, *, attempt, calcjob_uuid, requ
         return {"status":"rejected","reason":"source_unavailable"}
     node=orm.Dict()
     for item in record["metadata"]:
-        if item["path"] not in ("series_result.json",PIN_PATH): item["retained_node_uuid"]=node.uuid
+        if item["path"] not in ("series_result.json",PIN_PATH,PERFORMANCE_PATH): item["retained_node_uuid"]=node.uuid
     record["snapshot"]["metadata_set_sha256"]=_sha(_canonical(record["metadata"]))
     envelope["record_json"]=_canonical(record).decode()
     node.set_dict(envelope)

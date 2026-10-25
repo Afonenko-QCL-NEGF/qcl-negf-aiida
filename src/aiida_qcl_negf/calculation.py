@@ -42,6 +42,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.output("recovery_receipt", valid_type=orm.Dict, required=False)
         spec.output("prior_archive", valid_type=orm.FolderData, required=False)
         spec.output("selection", valid_type=orm.Dict, required=False)
+        spec.output("performance_binding", valid_type=orm.SinglefileData, required=False)
         spec.exit_code(300, "ERROR_MISSING_RESULT", message="The solver did not write its scientific result")
         spec.exit_code(301, "ERROR_INVALID_RESULT", message="Scientific result is malformed or does not match its input")
         spec.exit_code(302, "ERROR_SCIENTIFIC_FAILURE", message="The solver reported scientific failure or incomplete execution")
@@ -155,6 +156,21 @@ class QCLExecutionCalculation(CalcJob):
             info.prepend_text = (
                 "/run/current-system/sw/bin/qcl-negf-release guard --release-id " + shlex.quote(self.inputs.release_id.value)
                 + " --solver-executable " + shlex.quote(str(self.inputs.code.filepath_executable)) + " || exit 78")
+        if "b0_reference" not in self.inputs:
+            capability = "unset QCL_NEGF_CAPTURE_SPEC"
+            try:
+                from .capture_spec import capture_spec
+                spec_raw = capture_spec(encoded, plan, calcjob_uuid=self.node.uuid,
+                    execution_id=execution_id, attempt=self.inputs.attempt.value,
+                    scratch_root=self.inputs.scratch_root.value if "scratch_root" in self.inputs else None)
+                if spec_raw is not None:
+                    with folder.open("capture-spec.json", "wb") as handle:
+                        handle.write(spec_raw)
+                    capability = "export QCL_NEGF_CAPTURE_SPEC=capture-spec.json"
+            except (ValueError, TypeError, KeyError, OSError, ImportError):
+                pass # Failed optional spec is retained in inputs; ordinary solver.
+            preceding = getattr(info, "prepend_text", None)
+            info.prepend_text = (preceding + "\n" if preceding else "") + capability
         info.codes_info = [code]
         # Operator diagnostics publish their immutable commit and full closure
         # under executions/.../attempt-N/artifacts, outside stationary archives.
@@ -163,6 +179,8 @@ class QCLExecutionCalculation(CalcJob):
             "series_result.json", "scientific_plan.json", "pause-receipt.json",
             "retrieval-manifest.json", "archive", "recovery", "executions")]
         info.retrieve_list.extend([self.options.output_filename, "solver.stderr"])
+        # One optional bounded close sidecar; never retrieve raw performance trees.
+        info.retrieve_list.append("performance-binding.json")
         if "b0_reference" in self.inputs:
             from .b0 import B0_CONTROL_FILES, validate_retrieval
             # Native transport port gates these exact files on quiescence +

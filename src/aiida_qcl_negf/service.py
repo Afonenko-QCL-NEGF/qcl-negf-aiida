@@ -803,3 +803,20 @@ def get_saved_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
     from .saved_sources import get_saved_source as operation
     return operation(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid,
                      source_uuid=source_uuid, expected_source_sha256=expected_source_sha256)
+
+
+def get_performance_source(run_uuid, execution_id, *, attempt, calcjob_uuid):
+    """Exact execution summary, never a cost attributed to borrowed point data."""
+    from .performance_binding import retained_source
+    child, _, _ = _export_child(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    try:
+        return retained_source(child)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, ImportError):
+        return {"status": "unavailable", "reason": "performance_binding_invalid_or_unavailable"}
+
+
+def get_live_history_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
+                            point_id, source_attempt, namespace_id):
+    from .live_sources import get_live_history_source as operation
+    return operation(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid,
+                     point_id=point_id, source_attempt=source_attempt, namespace_id=namespace_id)
