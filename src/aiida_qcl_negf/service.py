@@ -789,3 +789,17 @@ from .research_cards import (  # noqa: F401
     list_research_cards,
     read_research_card_version,
 )
+
+
+# Saved-source reads are detached owner operations. Registration remains a
+# separately admitted administrative call, with no research HTTP route.
+def get_saved_sources(run_uuid, execution_id, *, attempt, calcjob_uuid):
+    from .saved_sources import get_saved_sources as operation
+    return operation(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+
+
+def get_saved_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
+                     source_uuid=None, expected_source_sha256=None):
+    from .saved_sources import get_saved_source as operation
+    return operation(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid,
+                     source_uuid=source_uuid, expected_source_sha256=expected_source_sha256)
