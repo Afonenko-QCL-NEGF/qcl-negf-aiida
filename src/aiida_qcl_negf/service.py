@@ -772,3 +772,20 @@ def open_artifact(identifier: str, execution_id: str, path: str, *, attempt=None
             yield handle
     except (FileNotFoundError, IsADirectoryError, KeyError) as exception:
         raise LookupError("Artifact not found") from exception
+
+
+# Native immutable research metadata; no workflow/plan mutation. These functions
+# are called through the same loaded-profile owner as the execution readers.
+from .research_cards import (  # noqa: F401
+    attach_research_card_report,
+    attach_research_card_run,
+    create_research_card,
+    edit_research_card,
+    get_research_card,
+    get_research_card_request,
+    list_research_card_reports,
+    list_research_card_runs,
+    list_research_card_versions,
+    list_research_cards,
+    read_research_card_version,
+)
