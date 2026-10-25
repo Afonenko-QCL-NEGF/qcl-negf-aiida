@@ -85,6 +85,10 @@ directory before AiiDA retrieves it. This reduces live I/O over the network;
 it does not make local checkpoints durable against node or disk failure.
 See [scratch storage](docs/deployment.md#scratch-storage).
 
+Optional ordinary live/performance capture and exact retained association are
+described in [live/performance](docs/live-performance.md). Missing telemetry does
+not change scientific result acceptance.
+
 ## Supported boundary
 
 Ordinary frozen plans with independent executions are supported. Campaign admission,

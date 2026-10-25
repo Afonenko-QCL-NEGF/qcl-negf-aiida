@@ -104,8 +104,10 @@ class QCLExecutionParser(Parser):
                 raise ValueError("Cross-execution result")
             plan_points = {point["id"]: point for point in plan["points"]}
             for point in result["points"]:
-                if type(point["attempt"]) is not int or not 1 <= point["attempt"] <= attempt:
+                if type(point["attempt"]) is not int or point["attempt"] < 1:
                     raise ValueError("Point attempt disagrees with the owning CalcJob")
+                if point["attempt"] > attempt and not (point.get("data") or {}).get("result_commit"):
+                    raise ValueError("Uncommitted point attempt exceeds the owning CalcJob")
                 coordinates = point["coordinates"]
                 original = plan_points[point["id"]]
                 for key in ("temperature_K", "voltage_per_period_V", "branch", "order"):
@@ -113,15 +115,50 @@ class QCLExecutionParser(Parser):
                         raise ValueError("Point coordinates disagree with the frozen plan")
             commits = pin_result_commits(repository, result["points"],
                 plan_fingerprint=plan["fingerprint"], require_receipt=execution["operation"] == "stationary")
+            from .science_association import validate_native_collisions
+            validate_native_collisions(result["points"], commits, input_attempt=attempt,
+                execution_id=execution_id, plan_fingerprint=plan["fingerprint"], calcjob_uuid=self.node.uuid,
+                scientific_fingerprint=plan["scientific_fingerprint"],result_scientific_fingerprint=result["plan_scientific_fingerprint"])
         except (ValueError, TypeError, KeyError, OSError, ValidationError) as exception:
             self.logger.error("Invalid scientific result: %s", exception)
             return self.exit_codes.ERROR_INVALID_RESULT
         self.out("result", orm.SinglefileData(file=io.BytesIO(raw), filename="series_result.json"))
-        self.out("selection", orm.Dict(dict={"calcjob_uuid": self.node.uuid,
+        selection = {"calcjob_uuid": self.node.uuid,
             "execution_id": execution_id, "attempt": attempt,
             "result_sha256": hashlib.sha256(raw).hexdigest(),
             "commits": commits,
-            "recovery_commit_sha256": selected["commit_sha256"] if selected else None}))
+            "recovery_commit_sha256": selected["commit_sha256"] if selected else None}
+        if "performance-binding.json" in paths:
+            try:
+                from .performance_binding import MAX_METADATA, verify_sidecar
+                from .science_association import source_point_owner
+                from .saved_sources import _Budget
+                with repository.open("performance-binding.json", "rb") as stream:
+                    sidecar_raw = stream.read(MAX_METADATA + 1)
+                proofs = {self.node.uuid: (result, selection)}
+                owner_budget = _Budget(8 * MAX_METADATA)
+                owners = {}
+                for point_id, commit in commits.items():
+                    identity = commit["identity"]
+                    owners[point_id] = source_point_owner(self.node, identity["attempt"], self.node.inputs.plan.uuid,
+                        point_id=point_id, commit_sha256=commit["commit_sha256"], identity=identity, proofs=proofs,budget=owner_budget,
+                        scientific_fingerprint=plan["scientific_fingerprint"])
+                binding = verify_sidecar(sidecar_raw,
+                    selection={"calcjob_uuid": self.node.uuid, "execution_id": execution_id,
+                               "attempt": attempt, "plan_fingerprint": plan["fingerprint"]},
+                    result_raw=raw, points=result["points"], commits=commits, source_owners=owners)
+                sidecar_node = orm.SinglefileData(file=io.BytesIO(sidecar_raw), filename="performance-binding.json")
+                self.out("performance_binding", sidecar_node)
+                selection["performance_binding"] = {**binding, "sidecar_uuid": sidecar_node.uuid}
+                selection["performance_status"] = "verified"
+            except (ValueError, TypeError, KeyError, OSError, ImportError) as exception:
+                # Observability cannot change scientific result/exit or retry work.
+                self.logger.warning("Performance binding unavailable/invalid: %s", exception)
+                selection["performance_status"] = "invalid"
+                selection["performance_reason"] = "performance_binding_rejected_raw_retained"
+        else:
+            selection["performance_status"] = "unavailable"
+        self.out("selection", orm.Dict(dict=selection))
         if result["status"] == "paused":
             if "result/pause-receipt.json" not in paths or selected is None:
                 return self.exit_codes.ERROR_INVALID_RECOVERY
