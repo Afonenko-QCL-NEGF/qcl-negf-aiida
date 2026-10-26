@@ -18,6 +18,7 @@ from uuid import UUID
 
 from aiida import orm
 from aiida.common.exceptions import NotExistent
+from aiida.common.links import LinkType
 from aiida.engine import submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.control import kill_processes
@@ -261,6 +262,125 @@ def list_runs(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     query = orm.QueryBuilder().append(orm.WorkChainNode, filters={"process_type": PROCESS_TYPE}, tag="run")
     query.order_by({"run": {"ctime": "desc"}}).limit(limit).offset(offset)
     return [_summary(node) for node in query.all(flat=True)]
+
+
+RECOVERY_PROCESS_TYPE = "aiida.workflows:qcl_negf.execution_restart"
+RECOVERY_CALC_TYPE = "aiida.calculations:qcl_negf.execution"
+
+
+def _recovery_optional(namespace, name):
+    try:
+        return getattr(namespace, name)
+    except (AttributeError, KeyError):
+        return None
+
+
+def _recovery_attempt(node):
+    item = _recovery_optional(node.inputs, "attempt")
+    if item is None:
+        return None
+    value = getattr(item, "value", None)
+    if type(value) is not int or value < 1:
+        raise ValueError("Invalid recovery attempt input")
+    return value
+
+
+def _recovery_uuid(namespace, name):
+    item = _recovery_optional(namespace, name)
+    return item.uuid if item is not None else None
+
+
+def _recovery_summary(node):
+    # Only a real CALL_WORK edge establishes a caller. Shared inputs do not.
+    query = orm.QueryBuilder().append(
+        orm.WorkChainNode, filters={"id": node.pk}, tag="recovery")
+    query.append(orm.ProcessNode, with_outgoing="recovery",
+                 edge_filters={"type": LinkType.CALL_WORK.value}, project="*")
+    callers = query.limit(2).all(flat=True)
+    if len(callers) > 1:
+        raise ValueError("Ambiguous recovery caller links")
+    response = _summary(node)
+    response.update(kind="recovery_execution", caller=(
+        {"uuid": callers[0].uuid, "process_type": callers[0].process_type}
+        if callers else None))
+    return response
+
+
+def _bounded_recovery_response(response):
+    try:
+        raw = json.dumps(response, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (ValueError, TypeError) as exception:
+        raise ValueError("Invalid recovery response metadata") from exception
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError("Recovery metadata exceeds the service response limit")
+    return response
+
+
+def list_recovery_executions(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    """List exact restart workflows, including both standalone and called roots."""
+    if type(limit) is not int or not 1 <= limit <= 200 or type(offset) is not int or offset < 0:
+        raise ValueError("Require 1 <= limit <= 200 and offset >= 0")
+    query = orm.QueryBuilder().append(
+        orm.WorkChainNode, filters={"process_type": RECOVERY_PROCESS_TYPE}, tag="recovery")
+    query.order_by({"recovery": [{"ctime": "desc"}, {"id": "desc"}]}).limit(limit).offset(offset)
+    return _bounded_recovery_response([_recovery_summary(node) for node in query.all(flat=True)])
+
+
+def get_recovery_execution(identifier: str) -> dict[str, Any]:
+    """Read bounded direct provenance and stored scheduler metadata, never science payloads."""
+    try:
+        if not isinstance(identifier, str) or str(UUID(identifier)) != identifier:
+            raise ValueError("Noncanonical UUID")
+    except (ValueError, TypeError, AttributeError) as exception:
+        raise ValueError("A full canonical process UUID is required") from exception
+    try:
+        node = orm.load_node(identifier)
+    except NotExistent as exception:
+        raise LookupError("Recovery execution not found") from exception
+    if not isinstance(node, orm.WorkChainNode) or node.process_type != RECOVERY_PROCESS_TYPE:
+        raise LookupError("Recovery execution not found")
+    response = _recovery_summary(node)
+    try:
+        plan_node = node.inputs.plan
+        plan = read_plan(plan_node)  # Existing 16 MiB read bound, no artifact arrays.
+        fingerprint = plan["fingerprint"]
+        if not isinstance(fingerprint, str) or not fingerprint:
+            raise ValueError("Missing fingerprint")
+    except Exception as exception:
+        raise ValueError("Invalid recovery plan metadata") from exception
+    execution_input = _recovery_optional(node.inputs, "execution_id")
+    execution_id = getattr(execution_input, "value", None)
+    if execution_input is not None and (
+            not isinstance(execution_id, str) or not 1 <= len(execution_id) <= 128):
+        raise ValueError("Invalid recovery execution_id input")
+    response.update(
+        plan={"uuid": plan_node.uuid, "fingerprint": fingerprint},
+        execution_id=execution_id, attempt=_recovery_attempt(node),
+        recovery={"input_bundle_uuid": _recovery_uuid(node.inputs, "recovery_bundle"),
+                  "input_prior_archive_uuid": _recovery_uuid(node.inputs, "prior_archive")},
+        children=[])
+    query = orm.QueryBuilder().append(
+        orm.WorkChainNode, filters={"id": node.pk}, tag="recovery")
+    # Select every direct CALL_CALC edge before validating its type. Filtering by
+    # process_type here would hide malformed/foreign provenance from the reader.
+    query.append(orm.Node, with_incoming="recovery", tag="child", project="*",
+                 edge_filters={"type": LinkType.CALL_CALC.value}, edge_project="label")
+    query.order_by({"child": [{"ctime": "asc"}, {"id": "asc"}]}).limit(101)
+    children = query.all()
+    if len(children) > 100:
+        raise ValueError("Recovery has more than 100 direct child links")
+    for child, call_label in children:
+        if not isinstance(child, orm.CalcJobNode) or child.process_type != RECOVERY_CALC_TYPE:
+            raise ValueError("Invalid recovery child process type")
+        state = child.get_scheduler_state()
+        summary = _summary(child)
+        summary.update(
+            attempt=_recovery_attempt(child), call_label=call_label,
+            job_id=child.get_job_id(), scheduler_state=state.value if state is not None else None,
+            retrieved_uuid=_recovery_uuid(child.outputs, "retrieved"),
+            result_uuid=_recovery_uuid(child.outputs, "result"))
+        response["children"].append(summary)
+    return _bounded_recovery_response(response)
 
 
 def get_run(identifier: str) -> dict[str, Any]:
