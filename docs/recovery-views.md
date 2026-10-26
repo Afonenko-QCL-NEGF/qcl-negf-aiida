@@ -14,7 +14,9 @@ contain actual attempt, call label, stored job ID/scheduler state, and optional
 retrieved/result output UUIDs. Missing optional metadata is null. No attempt is
 inferred as 1. Foreign children, ambiguous callers, malformed metadata and
 oversized responses fail closed. Queries cap children at 101 and callers at 2
-before materialization; plan reads retain the existing 16 MiB bound and JSON
+before materialization. Each input/output label is resolved by an exact typed
+link query capped at 2 rows, with ambiguous labels refused; ORM input/output
+namespaces are never expanded. Plan reads retain the existing 16 MiB bound and JSON
 responses retain the 32 MiB bound.
 
 The view reads metadata only. Scheduler state is stored AiiDA metadata, not a

@@ -268,15 +268,25 @@ RECOVERY_PROCESS_TYPE = "aiida.workflows:qcl_negf.execution_restart"
 RECOVERY_CALC_TYPE = "aiida.calculations:qcl_negf.execution"
 
 
-def _recovery_optional(namespace, name):
-    try:
-        return getattr(namespace, name)
-    except (AttributeError, KeyError):
-        return None
+def _recovery_link(node, name, *, incoming=True):
+    """Resolve one exact typed link without expanding an ORM link namespace."""
+    query = orm.QueryBuilder().append(orm.Node, filters={"id": node.pk}, tag="owner")
+    if incoming:
+        link_type = LinkType.INPUT_CALC if isinstance(node, orm.CalcJobNode) else LinkType.INPUT_WORK
+        direction = {"with_outgoing": "owner"}
+    else:
+        link_type = LinkType.CREATE
+        direction = {"with_incoming": "owner"}
+    query.append(orm.Node, edge_filters={"type": link_type.value, "label": name},
+                 project="*", **direction)
+    matches = query.limit(2).all(flat=True)
+    if len(matches) > 1:
+        raise ValueError(f"Ambiguous recovery metadata link: {name}")
+    return matches[0] if matches else None
 
 
 def _recovery_attempt(node):
-    item = _recovery_optional(node.inputs, "attempt")
+    item = _recovery_link(node, "attempt")
     if item is None:
         return None
     value = getattr(item, "value", None)
@@ -285,8 +295,8 @@ def _recovery_attempt(node):
     return value
 
 
-def _recovery_uuid(namespace, name):
-    item = _recovery_optional(namespace, name)
+def _recovery_uuid(node, name, *, incoming=True):
+    item = _recovery_link(node, name, incoming=incoming)
     return item.uuid if item is not None else None
 
 
@@ -341,14 +351,16 @@ def get_recovery_execution(identifier: str) -> dict[str, Any]:
         raise LookupError("Recovery execution not found")
     response = _recovery_summary(node)
     try:
-        plan_node = node.inputs.plan
+        plan_node = _recovery_link(node, "plan")
+        if plan_node is None:
+            raise ValueError("Missing recovery plan input")
         plan = read_plan(plan_node)  # Existing 16 MiB read bound, no artifact arrays.
         fingerprint = plan["fingerprint"]
         if not isinstance(fingerprint, str) or not fingerprint:
             raise ValueError("Missing fingerprint")
     except Exception as exception:
         raise ValueError("Invalid recovery plan metadata") from exception
-    execution_input = _recovery_optional(node.inputs, "execution_id")
+    execution_input = _recovery_link(node, "execution_id")
     execution_id = getattr(execution_input, "value", None)
     if execution_input is not None and (
             not isinstance(execution_id, str) or not 1 <= len(execution_id) <= 128):
@@ -356,8 +368,8 @@ def get_recovery_execution(identifier: str) -> dict[str, Any]:
     response.update(
         plan={"uuid": plan_node.uuid, "fingerprint": fingerprint},
         execution_id=execution_id, attempt=_recovery_attempt(node),
-        recovery={"input_bundle_uuid": _recovery_uuid(node.inputs, "recovery_bundle"),
-                  "input_prior_archive_uuid": _recovery_uuid(node.inputs, "prior_archive")},
+        recovery={"input_bundle_uuid": _recovery_uuid(node, "recovery_bundle"),
+                  "input_prior_archive_uuid": _recovery_uuid(node, "prior_archive")},
         children=[])
     query = orm.QueryBuilder().append(
         orm.WorkChainNode, filters={"id": node.pk}, tag="recovery")
@@ -377,8 +389,8 @@ def get_recovery_execution(identifier: str) -> dict[str, Any]:
         summary.update(
             attempt=_recovery_attempt(child), call_label=call_label,
             job_id=child.get_job_id(), scheduler_state=state.value if state is not None else None,
-            retrieved_uuid=_recovery_uuid(child.outputs, "retrieved"),
-            result_uuid=_recovery_uuid(child.outputs, "result"))
+            retrieved_uuid=_recovery_uuid(child, "retrieved", incoming=False),
+            result_uuid=_recovery_uuid(child, "result", incoming=False))
         response["children"].append(summary)
     return _bounded_recovery_response(response)
 

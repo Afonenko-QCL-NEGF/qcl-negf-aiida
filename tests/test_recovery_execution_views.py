@@ -17,9 +17,16 @@ class Node:
         self.label, self.process_state = 'metadata', NS(value='waiting')
         self.exit_status, self.is_finished_ok = None, False
         self.ctime = self.mtime = datetime(2026, 10, 26, tzinfo=timezone.utc)
-        self.inputs = NS(attempt=NS(value=3), execution_id=NS(value='execution-1'),
+        self._input_links = NS(attempt=NS(value=3), execution_id=NS(value='execution-1'),
                          plan=NS(uuid=str(UUID(int=87))))
-        self.outputs = NS()
+        self._output_links = NS()
+
+    @property
+    def inputs(self):
+        raise AssertionError('unbounded input namespace expansion')
+    @property
+    def outputs(self):
+        raise AssertionError('unbounded output namespace expansion')
 
 class Calc(Node):
     def __init__(self, pk):
@@ -52,6 +59,26 @@ def graph(monkeypatch):
                 assert self.parts[0][1]['filters'] == {'process_type': RESTART}
                 return data.rows[self.skip:self.skip+self.cap]
             kw = self.parts[1][1]
+            if self.parts[0][1].get('tag') == 'owner':
+                assert self.cap == 2
+                owner_pk = self.parts[0][1]['filters']['id']
+                owner = root if owner_pk == root.pk else child
+                edge = kw['edge_filters']
+                assert set(edge) == {'type', 'label'}
+                label = edge['label']
+                if 'with_outgoing' in kw:
+                    assert kw['with_outgoing'] == 'owner'
+                    expected = LinkType.INPUT_CALC if isinstance(owner, Calc) else LinkType.INPUT_WORK
+                    assert edge['type'] == expected.value
+                    assert label in {'plan', 'execution_id', 'attempt', 'recovery_bundle', 'prior_archive'}
+                    item = getattr(owner._input_links, label, None)
+                else:
+                    assert kw['with_incoming'] == 'owner'
+                    assert edge['type'] == LinkType.CREATE.value
+                    assert label in {'retrieved', 'result'}
+                    item = getattr(owner._output_links, label, None)
+                rows = item if isinstance(item, list) else ([] if item is None else [item])
+                return rows[:self.cap]
             if 'with_outgoing' in kw:
                 assert kw['edge_filters'] == {'type': LinkType.CALL_WORK.value}
                 assert self.cap == 2
@@ -79,7 +106,7 @@ def graph(monkeypatch):
 def test_detail_standalone_actual_provenance_and_nulls(graph):
     result = service.get_recovery_execution(graph.root.uuid)
     assert result['kind'] == 'recovery_execution' and result['caller'] is None
-    assert result['plan'] == {'uuid': graph.root.inputs.plan.uuid, 'fingerprint': 'saved-fingerprint'}
+    assert result['plan'] == {'uuid': graph.root._input_links.plan.uuid, 'fingerprint': 'saved-fingerprint'}
     assert result['execution_id'] == 'execution-1' and result['attempt'] == 3
     assert result['recovery'] == {'input_bundle_uuid': None, 'input_prior_archive_uuid': None}
     child = result['children'][0]
@@ -121,14 +148,14 @@ def test_all_direct_edges_inspected_and_overflow_refused(graph):
     with pytest.raises(ValueError, match='100'): service.get_recovery_execution(graph.root.uuid)
 
 def test_optional_metadata_null_and_input_associations(graph):
-    del graph.root.inputs.attempt
-    del graph.child.inputs.attempt
+    del graph.root._input_links.attempt
+    del graph.child._input_links.attempt
     graph.child.get_job_id = lambda: None
     graph.child.get_scheduler_state = lambda: None
-    graph.root.inputs.recovery_bundle = NS(uuid=str(UUID(int=10)))
-    graph.root.inputs.prior_archive = NS(uuid=str(UUID(int=11)))
-    graph.child.outputs.retrieved = NS(uuid=str(UUID(int=12)))
-    graph.child.outputs.result = NS(uuid=str(UUID(int=13)))
+    graph.root._input_links.recovery_bundle = NS(uuid=str(UUID(int=10)))
+    graph.root._input_links.prior_archive = NS(uuid=str(UUID(int=11)))
+    graph.child._output_links.retrieved = NS(uuid=str(UUID(int=12)))
+    graph.child._output_links.result = NS(uuid=str(UUID(int=13)))
     result = service.get_recovery_execution(graph.root.uuid)
     assert result['attempt'] is None and result['children'][0]['attempt'] is None
     assert result['children'][0]['job_id'] is None and result['children'][0]['scheduler_state'] is None
@@ -138,7 +165,7 @@ def test_optional_metadata_null_and_input_associations(graph):
 
 @pytest.mark.parametrize('value', [0, True, '1'])
 def test_malformed_attempt_refused(graph, value):
-    graph.child.inputs.attempt.value = value
+    graph.child._input_links.attempt.value = value
     with pytest.raises(ValueError, match='attempt'): service.get_recovery_execution(graph.root.uuid)
 
 def test_invalid_plan_and_serialized_response_refused(graph, monkeypatch):
@@ -148,3 +175,20 @@ def test_invalid_plan_and_serialized_response_refused(graph, monkeypatch):
     monkeypatch.setattr(service, 'MAX_RESPONSE_BYTES', 50)
     with pytest.raises(ValueError, match='response'): service.get_recovery_execution(graph.root.uuid)
     with pytest.raises(ValueError, match='response'): service.list_recovery_executions()
+
+@pytest.mark.parametrize('name', ['plan', 'execution_id', 'attempt', 'recovery_bundle', 'prior_archive'])
+def test_ambiguous_exact_input_refused(graph, name):
+    setattr(graph.root._input_links, name, [NS(uuid=str(UUID(int=1))), NS(uuid=str(UUID(int=2)))])
+    with pytest.raises(ValueError):
+        service.get_recovery_execution(graph.root.uuid)
+
+@pytest.mark.parametrize('name', ['retrieved', 'result'])
+def test_ambiguous_exact_output_refused(graph, name):
+    setattr(graph.child._output_links, name, [NS(uuid=str(UUID(int=1))), NS(uuid=str(UUID(int=2)))])
+    with pytest.raises(ValueError, match='Ambiguous'):
+        service.get_recovery_execution(graph.root.uuid)
+
+def test_missing_required_plan_refused(graph):
+    del graph.root._input_links.plan
+    with pytest.raises(ValueError, match='plan'):
+        service.get_recovery_execution(graph.root.uuid)
