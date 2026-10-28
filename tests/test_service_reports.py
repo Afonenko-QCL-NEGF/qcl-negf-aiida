@@ -40,8 +40,9 @@ def report_source(monkeypatch):
         canonical_contracts = expected_contracts.resolve(strict=True)
         assert expected_contracts == canonical_contracts
         assert actual_contracts == canonical_contracts
+    # Published Contracts 5df0f9f: retain the exact source/hash guard for this composition.
     assert hashlib.sha256(actual_contracts.read_bytes()).hexdigest() == (
-        "fd82f76a005519962b1edbfd5b9971f6e8d50c0806ca1f4070359e908fa205fa"
+        "9a681a7ddb494f661dd4a28c1b02fdaa1d611193b2cb4181895de1faf1e7b034"
     )
     forbidden_calls = []
     node_calls = []

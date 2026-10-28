@@ -98,3 +98,11 @@ def test_get_run_one_plan_read_preserves_attempts_and_cap(plan, monkeypatch):
     monkeypatch.setattr(service, "_children", forbidden)
     with pytest.raises(ValueError, match="response limit"):
         service.get_run("run")
+
+
+def test_selector_does_not_require_unused_child_uuid(monkeypatch):
+    """Legacy direct detail selection only needs UUID for an explicit UUID selector."""
+    child = NS(inputs=NS(execution_id=NS(value='e1')))
+    node = NS(outputs=NS())
+    monkeypatch.setattr(service,'_children',lambda _: [child])
+    assert service._select_child(node,'e1') is child

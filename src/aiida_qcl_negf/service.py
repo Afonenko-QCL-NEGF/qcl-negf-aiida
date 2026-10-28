@@ -87,28 +87,18 @@ def _attempt(child):
 
 
 def _select_child(node, execution_id, *, attempt=None, calcjob_uuid=None):
+    from .read_projection import choose_child
+    selections = []
     if attempt is None and calcjob_uuid is None:
         try:
-            selections = node.outputs.selections.values()
+            selections = [item.get_dict() for item in node.outputs.selections.values()]
         except (AttributeError, KeyError):
-            selections = []
-        chosen = [item.get_dict() for item in selections if item.get_dict().get("execution_id") == execution_id]
-        if len(chosen) > 1:
-            raise ValueError("Conflicting published attempt selections")
-        if chosen:
-            attempt, calcjob_uuid = chosen[0]["attempt"], chosen[0]["calcjob_uuid"]
-    candidates = [child for child in _children(node) if child.inputs.execution_id.value == execution_id]
-    if attempt is not None:
-        if type(attempt) is not int or attempt < 1:
-            raise ValueError("Require a positive attempt")
-        candidates = [child for child in candidates if _attempt(child) == attempt]
-    if calcjob_uuid is not None:
-        candidates = [child for child in candidates if child.uuid == calcjob_uuid]
-    if len(candidates) > 1:
-        raise ValueError("Multiple attempts exist; select an exact attempt or CalcJob UUID")
-    if not candidates:
-        raise LookupError("Selected attempt is unavailable")
-    return candidates[0]
+            pass
+    children = _children(node)
+    records = [{"uuid": getattr(child, "uuid", None), "execution_id": child.inputs.execution_id.value,
+                "attempt": _attempt(child)} for child in children]
+    chosen = choose_child(records, selections, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
+    return next(child for child, record in zip(children, records) if record is chosen)
 
 
 def _export_uuid(value, message):
@@ -395,7 +385,61 @@ def get_recovery_execution(identifier: str) -> dict[str, Any]:
     return _bounded_recovery_response(response)
 
 
+def get_run_projection(identifier: str, *, known_revision: str | None = None) -> dict[str, Any]:
+    """Read a current bounded PostgreSQL projection without plans or scientific files."""
+    from .read_projection import projection
+    return projection(identifier, known_revision, maximum=MAX_RESPONSE_BYTES)
+
+
 def get_run(identifier: str) -> dict[str, Any]:
+    """Read details for one snapshot; SQLite retains its documented direct path."""
+    from . import read_projection as projection
+    backend = projection.current_backend()
+    if not projection.supports_backend(backend):
+        return _get_run_direct(identifier)
+    snapshot = projection.read_snapshot(identifier)
+    with projection.payload_reader(backend) as load_payload:
+        return _get_run_snapshot(snapshot, load_payload)
+
+
+def _get_run_snapshot(snapshot, load_payload):
+    from . import read_projection as projection
+    cache = snapshot["cache"]
+    if snapshot["plan_uuid"] is None:
+        raise ValueError("Run plan input is unavailable")
+    plan = cache.read("plan", snapshot["plan_uuid"],
+                      lambda: load_payload(snapshot["plan_uuid"], read_plan))
+    response = dict(snapshot["summary"])
+    # Structure projection is immutable alongside the frozen plan.
+    detail = cache.read("structure", snapshot["plan_uuid"], lambda: {
+        "plan_fingerprint": plan["fingerprint"], "plan_structure": project_run_structure(plan),
+        "plan_points": [{key: point[key] for key in
+            ("id", "execution_id", "temperature_K", "voltage_per_period_V")} for point in plan["points"]]})
+    response.update(detail, results={}, children=[])
+    remaining = MAX_RESPONSE_BYTES - len(json.dumps(response, ensure_ascii=False).encode()) - 1024
+    selections = projection.selected_children(snapshot["children"], snapshot["selections"])
+    for child in snapshot["children"]:
+        summary = {key: value for key, value in child.items() if key != "result_uuid"}
+        response["children"].append(summary)
+        remaining -= len(json.dumps(summary, ensure_ascii=False).encode()) + 256
+        if remaining < 1:
+            raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
+        if child["result_uuid"] is not None:
+            result = cache.read("result", child["result_uuid"],
+                lambda result_uuid=child["result_uuid"], limit=remaining: load_payload(
+                    result_uuid, lambda node: read_json(node, limit=limit)))
+            remaining -= len(json.dumps(result, ensure_ascii=False).encode())
+            if remaining < 1:
+                raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
+            selected = selections.get(child["execution_id"])
+            if selected is not None and selected["uuid"] == child["uuid"]:
+                response["results"][child["execution_id"]] = result
+    if remaining < 1 or len(json.dumps(response, ensure_ascii=False).encode()) > MAX_RESPONSE_BYTES:
+        raise ValueError("Run metadata exceeds the service response limit; use AiiDA directly")
+    return response
+
+
+def _get_run_direct(identifier: str) -> dict[str, Any]:
     """Read the current workflow and scientific outputs, including partial results."""
     node = _node(identifier)
     response = _summary(node)
