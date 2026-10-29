@@ -84,3 +84,17 @@ def test_borrowed_source_requires_exact_prior_creator_raw_and_pin():
     assert source_point_owner(child, 1, "plan", point_id="P", commit_sha256="b" * 64, identity=identity) == "job1"
     del child.inputs.prior_archive
     assert source_point_owner(child, 1, "plan", point_id="P", commit_sha256="b" * 64, identity=identity) is None
+
+
+def test_pure_native_binding_does_not_fall_back_to_legacy_orm_owner(monkeypatch):
+    from aiida_qcl_negf import science_association as association
+    from test_native_binding import fixture as native_fixture
+
+    def unavailable(*args, **kwargs):
+        raise AssertionError("pure binder called legacy actor owner")
+
+    monkeypatch.setattr(association, "source_point_owner", unavailable)
+    draft = association.bind_native_result(**native_fixture())
+    assert draft["points"][0]["creator"] == {
+        "calcjob_uuid": "00000000-0000-4000-8000-000000000003", "binding_uuid": None,
+    }
