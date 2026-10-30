@@ -12,8 +12,11 @@ from contextvars import ContextVar
 import hashlib
 import json
 import os
+import re
+import shlex
 from pathlib import Path, PurePosixPath
 import stat
+import sys
 from uuid import UUID
 
 from aiida import orm
@@ -681,10 +684,16 @@ def get_saved_source(run_uuid, execution_id, *, attempt, calcjob_uuid, source_uu
 
 # Native B consumer. This is separate from the historical L1 registrar above:
 # a selected access context never certifies the scientific invocation's creator.
-_NATIVE_METADATA = 32 * 1024 * 1024
+_NATIVE_METADATA = 320 * 1024 * 1024
 _NATIVE_IO = 256 * 1024 * 1024
-_NATIVE_OPERATION_METADATA = 2 * 1024 * 1024
+_NATIVE_OPERATION_METADATA = 8 * 1024 * 1024
 _NATIVE_OPERATION_IO = 16 * 1024 * 1024
+_NATIVE_RESULTS_WORKSPACE = 128 * 1024 * 1024
+_NATIVE_BINDER_WORKSPACE = 96 * 1024 * 1024
+_NATIVE_RETAINED_SLOT = 8 * 1024 * 1024
+_NATIVE_BINDER_KEYS = frozenset((('result-common.schema.json','#/$defs/'+name)
+    for name in ('Id','Count','Sha256','Invocation'))) | frozenset((
+        ('model-help.schema.json','#/$defs/SourceGraph'),('scientific-plan.schema.json','')))
 _NATIVE_INTEGRITY = dict(scope='selected_metadata', native_contexts='verified',
                          transport_owner='verified', full_core_payloads='not_assessed',
                          current_access='not_checked')
@@ -693,8 +702,9 @@ _NATIVE_INTEGRITY = dict(scope='selected_metadata', native_contexts='verified',
 class _NativeLedger:
     """One nonrefundable SOURCE/L allowance, including failures and copies.
 
-    Full foreign operation caps are prepaid. These reservations are an admission
-    policy, not a measured RSS bound or an installed native qualification.
+    Reusable closed-owner workspace is prepaid once, retained slots/copies and
+    I/O remain monotonic. Failure/cancel makes dependent reuse terminal. This is
+    explicit metadata accounting, not a heap/RSS or native qualification.
     """
     def __init__(self, maximum_metadata_bytes, maximum_io_bytes):
         if (type(maximum_metadata_bytes) is not int or not 0 < maximum_metadata_bytes <= _NATIVE_METADATA
@@ -702,17 +712,38 @@ class _NativeLedger:
             _fail('budget_exceeded', 'native_outer_cap')
         self.metadata, self.io = maximum_metadata_bytes, maximum_io_bytes
         self.reservations = []
+        self.failed = False
+        self.results_workspace = self.binder_workspace = False
+        self.binding_profile = {}
 
     def reserve(self, operation, *, metadata=0, io=0):
+        if self.failed:_fail('budget_exceeded','native_failed_operation')
         if (type(metadata) is not int or type(io) is not int or metadata < 0 or io < 0
                 or metadata > self.metadata or io > self.io):
+            self.failed=True
             _fail('budget_exceeded', operation)
         self.metadata -= metadata
         self.io -= io
         self.reservations.append((operation, metadata, io))
 
+    def workspaces(self):
+        if not self.results_workspace:
+            self.reserve('Results reusable whole-call workspace',metadata=_NATIVE_RESULTS_WORKSPACE)
+            self.results_workspace=True
+        if not self.binder_workspace:
+            self.reserve('AiiDA binder/outward cache workspace',metadata=_NATIVE_BINDER_WORKSPACE)
+            self.binder_workspace=True
+        try:self.binding_profile=_native_binding_profile(self.binding_profile)
+        except BaseException:self.failed=True;raise
+
     def results(self, operation):
-        self.reserve(operation, metadata=_NATIVE_OPERATION_METADATA, io=_NATIVE_OPERATION_IO)
+        self.workspaces()
+        self.reserve('Results detached retained slot',metadata=_NATIVE_RETAINED_SLOT)
+        self.reserve(operation+' artifact allowance',io=_NATIVE_OPERATION_IO)
+        # Enforced by the producer across both identity checks. Immutable package
+        # factory/vocabulary reads are informational outside this scoped credit:
+        # catalog/lineage can perform more of them; no whole-process I/O bound.
+        self.reserve(operation+' identity-source allowance',io=6*1024*1024)
 
 
 _native_credit_scope = ContextVar('qcl_native_consumer_credit', default=None)
@@ -722,11 +753,14 @@ _native_credit_scope = ContextVar('qcl_native_consumer_credit', default=None)
 def _native_operation(maximum_metadata_bytes, maximum_io_bytes):
     active = _native_credit_scope.get()
     if active is not None:
-        yield active
+        if active.failed:_fail('budget_exceeded','native_failed_operation')
+        try:yield active
+        except BaseException:active.failed=True;raise
         return
     ledger = _NativeLedger(maximum_metadata_bytes,maximum_io_bytes)
     token = _native_credit_scope.set(ledger)
     try: yield ledger
+    except BaseException:ledger.failed=True;raise
     finally: _native_credit_scope.reset(token)
 
 
@@ -736,6 +770,7 @@ def _native_credit(maximum_metadata_bytes, maximum_io_bytes):
         _fail('budget_exceeded','native_outer_cap')
     active = _native_credit_scope.get()
     if active is None:return _NativeLedger(maximum_metadata_bytes,maximum_io_bytes)
+    if active.failed:_fail('budget_exceeded','native_failed_operation')
     # Nested calls cannot enlarge or ignore an explicitly tightened allowance.
     # Burn excess remaining credit rather than replacing/resetting the ledger.
     active.reserve('caller tightened remaining allowance',
@@ -760,6 +795,101 @@ def _native_weight(value, *, depth=0, active=None):
     finally: active.remove(id(value))
 
 
+def _native_binding_profile(previous):
+    """Finite trusted-owner six-key cache census; never clear or prewarm it.
+
+    This inspects our pinned CPython cache layout, not arbitrary Python/VM state.
+    The separate96MiB reservation covers our six caches, all five fixed public
+    Contracts outward roots, fresh factory graphs and bounded inspection.
+    Contracts private caches are not accessed here; their fixed public source
+    domain and trusted packaged implementation are the conservative bound.
+    """
+    import functools,gc,marshal,types
+    from . import science_association as owner
+    from qcl_negf_contracts import schema_validator
+    from jsonschema import Draft202012Validator
+    from referencing import Registry,Resource
+    from referencing._core import Resolver
+    from jsonschema_specifications import REGISTRY
+    def require(ok):
+        if not ok:_fail('source_unavailable','native_binding_cache_profile')
+    require(sys.implementation.name=='cpython' and sys.version_info[:3]==(3,14,7))
+    wrapper=owner._binding_validator
+    require(type(wrapper) is functools._lru_cache_wrapper and type(wrapper.__dict__) is dict
+            and len(wrapper.__dict__)==8
+            and set(wrapper.__dict__)=={'cache_parameters','__module__','__name__','__qualname__',
+                '__doc__','__annotate__','__type_params__','__wrapped__'})
+    info=wrapper.cache_info();refs=gc.get_referents(wrapper)
+    require(info.maxsize is None and info.currsize<=6 and len(refs)==7)
+    targets=[v for v in refs if type(v) is types.FunctionType]
+    require(len(targets)==1 and targets[0] is wrapper.__wrapped__)
+    target=targets[0]
+    require(target.__globals__ is owner.__dict__ and owner.schema_validator is schema_validator
+            and target.__closure__ is None and type(target.__defaults__) is tuple
+            and len(target.__defaults__)==1 and type(target.__defaults__[0]) is str
+            and target.__defaults__[0]=='' and target.__kwdefaults__ is None)
+    def normalized(code):
+        return code.replace(co_filename='',co_consts=tuple(normalized(v) if type(v) is types.CodeType else v for v in code.co_consts))
+    require(hashlib.sha256(marshal.dumps(normalized(target.__code__))).hexdigest()==
+            '9b9bb91d3106fa534bde473f2ff415b95a6e77fb45c8ca7f75fc5a25d65426d6')
+    caches=[v for v in refs if type(v) is dict and v is not wrapper.__dict__]
+    require(len(caches)==1 and len(caches[0])==info.currsize)
+    roots=[];identities={};base='https://qcl-negf.invalid/schema/'
+    for key,validator in caches[0].items():
+        require(type(key) is tuple and len(key)==2 and all(type(v) is str for v in key)
+                and key in _NATIVE_BINDER_KEYS and type(validator) is Draft202012Validator)
+        require(type(validator.schema) is dict and len(validator.schema)==1
+                and type(validator.schema.get('$ref')) is str and validator.schema['$ref']==base+''.join(key)
+                and validator._ref_resolver is None and validator.format_checker is None)
+        require(type(validator._validators) is list and len(validator._validators)==1)
+        execution=validator._validators[0]
+        require(type(execution) is tuple and len(execution)==3
+                and execution[0] is Draft202012Validator.VALIDATORS['$ref']
+                and type(execution[1]) is str and execution[1]=='$ref'
+                and execution[2] is validator.schema['$ref'])
+        require(type(validator._resolver) is Resolver)
+        registry=validator._registry;resolver=validator._resolver._registry
+        require(type(registry) is Registry and type(resolver) is Registry
+                and type(registry._resources) is type(REGISTRY._resources)
+                and type(resolver._resources) is type(REGISTRY._resources)
+                and type(registry._anchors) is type(REGISTRY._anchors)
+                and type(resolver._anchors) is type(REGISTRY._anchors)
+                and type(registry._uncrawled) is type(REGISTRY._uncrawled)
+                and len(registry)==36 and len(resolver)==56
+                and len(registry._anchors)==0 and len(registry._uncrawled)==36
+                and resolver._anchors==REGISTRY._anchors
+                and registry._retrieve is REGISTRY._retrieve and resolver._retrieve is REGISTRY._retrieve)
+        for uri,resource in registry.items():
+            require(type(uri) is str and uri.startswith(base) and type(resource) is Resource
+                    and resolver[uri].contents is resource.contents)
+        for uri,resource in resolver.items():
+            require(type(uri) is str and type(resource) is Resource)
+            if not uri.startswith(base):require(uri in REGISTRY and resource.contents is REGISTRY[uri].contents)
+            roots.append(resource.contents)
+        identities[key]=id(validator)
+    require(all(identities.get(k)==v for k,v in previous.items()))
+    # Incremental bounded W inspection, including actual shared standard schemas.
+    # At most6*56 roots. Seen/active traversal storage is covered by96MiB, not
+    # excluded as an immutable interpreter baseline. Unsupported content HOLDs.
+    remaining=32*1024*1024;seen=set();active=set()
+    def charge(n):
+        nonlocal remaining
+        require(n<=remaining);remaining-=n
+    def visit(value,depth=0):
+        require(depth<=64);kind=type(value)
+        if value is None or kind in (bool,int,float):charge(64);return
+        if kind in (str,bytes):charge(128+6*len(value));return
+        require(kind in (dict,list,tuple))
+        identity=id(value);require(identity not in active)
+        if identity in seen:return
+        charge(128);seen.add(identity);active.add(identity)
+        for key,child in (value.items() if kind is dict else enumerate(value)):
+            visit(key,depth+1);visit(child,depth+1)
+        active.remove(identity)
+    for root in roots:visit(root)
+    return identities
+
+
 def _native_decode(raw, maximum, ledger, operation):
     # Punctuation in strings only overestimates. Reserve decoded Python/JSON
     # workspace before invoking the decoder, including original object strings.
@@ -768,17 +898,22 @@ def _native_decode(raw, maximum, ledger, operation):
     return _json(raw,maximum)
 
 
-def _native_related(node, kind, label, ledger, *, outgoing=False, optional=False):
+def _native_related(node, kind, label, ledger, *, outgoing=False, optional=False, snapshot=None):
     ledger.reserve('ORM typed link query', metadata=16384)
     query = orm.QueryBuilder().append(orm.Node, filters={'uuid':node.uuid}, tag='anchor')
     edge = {'type':kind.value}
     if label is not None: edge['label'] = label
     query.append(orm.Node, **{'with_incoming' if outgoing else 'with_outgoing':'anchor'},
-                 edge_filters=edge, project='*')
-    rows = query.limit(2).all(flat=True)
+                 edge_filters=edge, project='*', edge_project='label')
+    rows = query.limit(2).all()
     if optional and not rows: return None
     if len(rows) != 1: _fail('source_identity_mismatch', 'missing_or_ambiguous_native_link')
-    return rows[0]
+    related,actual_label=rows[0]
+    if snapshot is not None:
+        source,target=(node,related) if outgoing else (related,node)
+        claim=dict(source_uuid=source.uuid,target_uuid=target.uuid,type=kind.value,label=actual_label)
+        if claim not in snapshot.setdefault('links',[]):snapshot['links'].append(claim)
+    return related
 
 
 def _native_file(node, ledger, *, maximum=65536):
@@ -798,30 +933,36 @@ def _native_pin(node, raw):
     return dict(node_uuid=node.uuid, bytes=str(len(raw)), sha256=_sha(raw))
 
 
-def _native_inputs(child, ledger):
+def _native_inputs(child, ledger, *, snapshot=None):
     """Re-read actual immutable typed input/call graph; no runtime actor lookup."""
     from aiida.common.links import LinkType
     from qcl_negf_contracts import schema_validator
+    ledger.workspaces()
     if (not isinstance(child, orm.CalcJobNode) or not child.is_stored
             or child.process_type != 'aiida.calculations:qcl_negf.execution'):
         _fail('source_identity_mismatch', 'native_calcjob_required')
-    parent=_native_related(child,LinkType.CALL_CALC,None,ledger)
+    def related(node,kind,label):
+        captured=snapshot if label!='release_id' and not (label or '').startswith('native_executions__') else None
+        return _native_related(node,kind,label,ledger,snapshot=captured)
+    parent=related(child,LinkType.CALL_CALC,None)
     processes=[child,parent]
     if parent.process_type=='aiida.workflows:qcl_negf.execution_restart':
-        run=_native_related(parent,LinkType.CALL_WORK,None,ledger);processes.append(run)
+        if not isinstance(parent,orm.WorkChainNode):_fail('source_identity_mismatch','native_restart_call_required')
+        run=related(parent,LinkType.CALL_WORK,None);processes.append(run)
     else: run=parent
     if not isinstance(run,orm.WorkChainNode) or run.process_type!='aiida.workflows:qcl_negf.plan':
         _fail('source_identity_mismatch','native_plan_call_required')
     labels=('plan','source_graph','native_execution','code','execution_id','attempt','release_id')
-    inputs={name:_native_related(child,LinkType.INPUT_CALC,name,ledger) for name in labels}
+    inputs={name:related(child,LinkType.INPUT_CALC,name) for name in labels}
     code=inputs['code'];attempt=inputs['attempt'];execution=inputs['execution_id'];release=inputs['release_id']
     if (type(attempt) is not orm.Int or type(attempt.value) is not int or attempt.value<1
             or type(execution) is not orm.Str or type(release) is not orm.Str
             or not isinstance(code,orm.InstalledCode) or code.computer is None
             or child.computer is None or child.computer.uuid!=code.computer.uuid):
         _fail('source_identity_mismatch','native_scalar_code_input')
-    raw_plan,raw_graph,raw_native=(_native_file(inputs[k],ledger) for k in ('plan','source_graph','native_execution'))
-    plan=scientific_plan(_native_decode(raw_plan,65536,ledger,'original plan decoding'))
+    raw_plan,raw_graph,raw_native=(_native_file(inputs[k],ledger,maximum=1048576 if k=='plan' else 65536)
+        for k in ('plan','source_graph','native_execution'))
+    plan=scientific_plan(_native_decode(raw_plan,1048576,ledger,'original plan decoding'))
     graph=_native_decode(raw_graph,65536,ledger,'original graph decoding')
     native=_native_decode(raw_native,65536,ledger,'original execution decoding')
     schema_validator('scientific-plan.schema.json').validate(plan)
@@ -842,20 +983,267 @@ def _native_inputs(child, ledger):
     for process in processes:
         kind=LinkType.INPUT_CALC if isinstance(process,orm.CalcJobNode) else LinkType.INPUT_WORK
         for name in ('plan','source_graph','code','release_id'):
-            if _native_related(process,kind,name,ledger).uuid!=inputs[name].uuid:
+            if related(process,kind,name).uuid!=inputs[name].uuid:
                 _fail('source_identity_mismatch','native_call_original_input')
         if process.uuid!=run.uuid:
             for name in ('native_execution','execution_id','attempt'):
-                if _native_related(process,kind,name,ledger).uuid!=inputs[name].uuid:
+                if related(process,kind,name).uuid!=inputs[name].uuid:
                     _fail('source_identity_mismatch','native_call_scalar_input')
     identifiers=[e['id'] for e in plan['executions']]
     if identifiers.count(execution.value)!=1: _fail('source_identity_mismatch','native_execution_inventory')
     name='native_executions__execution_'+str(identifiers.index(execution.value))
-    if _native_related(run,LinkType.INPUT_WORK,name,ledger).uuid!=inputs['native_execution'].uuid:
+    if related(run,LinkType.INPUT_WORK,name).uuid!=inputs['native_execution'].uuid:
         _fail('source_identity_mismatch','native_plan_execution_input')
+    if snapshot is not None:
+        ledger.reserve('actual ORM proof snapshot',metadata=8*(len(raw_plan)+len(raw_graph)+len(raw_native))+65536)
+        snapshot.update(processes=[dict(uuid=p.uuid,process_type=p.process_type,
+            attempt_input=None if p.uuid==run.uuid else dict(node_uuid=attempt.uuid,value=attempt.value),
+            execution_input=None if p.uuid==run.uuid else dict(node_uuid=execution.uuid,value=execution.value)) for p in processes],
+            codes=[native['code']],files=[dict(node_uuid=inputs[k].uuid,raw=raw) for k,raw in
+                zip(('plan','source_graph','native_execution'),(raw_plan,raw_graph,raw_native))])
     return dict(selection=dict(run_uuid=run.uuid,execution_id=execution.value,attempt=attempt.value,calcjob_uuid=child.uuid),
         frozen_plan=raw_plan,plan_node_uuid=inputs['plan'].uuid,source_graph=dict(value=graph,raw=raw_graph),
         source_graph_node_uuid=inputs['source_graph'].uuid,execution_binding=native)
+
+
+
+# This is an enforced public-port allowance, prepaid before the call. A plan's
+# larger role ceiling does not imply that every role-eligible input fits here;
+# the actor refuses on its inherited ledger rather than expanding this credit.
+_NATIVE_ORIGIN_METADATA = 5 * 1024 * 1024 // 2
+# A24 read_native_origin_inputs uses one _Reads ledger: every file read
+# prepays 8 * requested bytes before open/read, including EOF requests.
+# Queries/other charges are nonnegative and cache hits perform no raw reads.
+# Thus even a later refusal can deliver at most floor(metadata allowance / 8)
+# payload bytes across the whole port call. This is not a per-role maximum.
+_NATIVE_ORIGIN_IO = _NATIVE_ORIGIN_METADATA // 8
+
+
+def _native_epoch(invocation):
+    epoch=invocation.get('source_epoch') if type(invocation) is dict else None
+    match=re.fullmatch(r'c1-([0-9a-f]{32})-([0-9a-f]{32})-(0|[1-9][0-9]{0,19})',epoch or '')
+    if match is None or int(match[3])>18446744073709551615:
+        _fail('creator_proof_unavailable','original_invocation_calcjob_origin')
+    return str(UUID(match[1])),str(UUID(match[2])),epoch
+
+
+def _native_origin_script(raw,child,args):
+    """Join original literal argv operands; protected script/writer is Root's gate."""
+    try:
+        lines=raw.decode('utf-8').splitlines()
+        commands=[line for line in lines if 'run-plan' in line]
+        if len(commands)!=1:raise ValueError()
+        words=shlex.split(commands[0]);native=args['execution_binding']
+        output=words[3]
+        _absolute(output)
+        if not output.endswith('/'+native['storage']['relative_execution_root']):raise ValueError()
+        argv=[native['code']['solver_executable'],'run-plan','plan.json',output,'--execution-id',
+            args['selection']['execution_id'],'--source-graph','source-graph.json',
+            '--native-execution','native-execution.json','--native-calcjob-uuid',child.uuid]
+        literal=lambda word:"'"+word.replace("'", "'\"'\"'")+"'"
+        expected=' '.join(map(literal,argv))+"  > 'solver.stdout' 2> 'solver.stderr'"
+        guard=('/run/current-system/sw/bin/qcl-negf-release guard --release-id '+shlex.quote(native['code']['release_id'])+
+            ' --solver-executable '+shlex.quote(native['code']['solver_executable'])+' || exit 78')
+        if commands[0]!=expected or lines.count(guard)!=1 or lines.count('unset QCL_NEGF_CAPTURE_SPEC')!=1:raise ValueError()
+    except (ValueError,IndexError,UnicodeError):
+        _fail('source_identity_mismatch','native_original_script_argv')
+
+
+def _native_origin(child,args,snapshot,invocation,ledger,cache):
+    from aiida.common.links import LinkType
+    from .native_actor import read_native_origin_inputs,NativeActorUnavailable
+    creator,native_uuid,epoch=_native_epoch(invocation)
+    if creator in cache:
+        record=cache[creator]
+        if record[1]['execution_binding']['storage']['execution_binding_uuid']!=native_uuid:
+            _fail('source_identity_mismatch','native_origin_input_uuid')
+        return record
+    if creator==child.uuid:origin,original,graph=child,args,snapshot
+    else:
+        ledger.reserve('origin CalcJob typed query',metadata=16384)
+        rows=orm.QueryBuilder().append(orm.CalcJobNode,filters={'uuid':creator},project='*').limit(2).all(flat=True)
+        if len(rows)!=1:_fail('creator_proof_unavailable','original_origin_calcjob')
+        origin=rows[0];graph={};original=_native_inputs(origin,ledger,snapshot=graph)
+    if (original['execution_binding']['storage']['execution_binding_uuid']!=native_uuid or
+            any(original[k]!=args[k] for k in ('frozen_plan','plan_node_uuid','source_graph','source_graph_node_uuid','execution_binding')) or
+            original['selection']['run_uuid']!=args['selection']['run_uuid']):
+        _fail('source_identity_mismatch','native_origin_original_inputs')
+    ledger.reserve('origin raw port full allowance',metadata=_NATIVE_ORIGIN_METADATA,io=_NATIVE_ORIGIN_IO)
+    try:raw_native,raw_script=read_native_origin_inputs(creator,source_epoch=epoch,maximum_metadata_bytes=_NATIVE_ORIGIN_METADATA)
+    except NativeActorUnavailable as error:
+        raise SourceError('creator_proof_unavailable','original_origin_input_script') from error
+    # Independent actual typed INPUT/CREATE bytes, rather than trusting the tuple.
+    expected=next(v['raw'] for v in graph['files'] if v['node_uuid']==native_uuid)
+    script=_native_related(origin,LinkType.CREATE,'native_submit_script',ledger,outgoing=True)
+    actual_script=_native_file(script,ledger)
+    ledger.reserve('origin returned byte comparisons',metadata=8*(len(raw_native)+len(raw_script)))
+    if raw_native!=expected or raw_script!=actual_script:_fail('source_identity_mismatch','native_origin_raw_operands')
+    _native_origin_script(actual_script,origin,original)
+    cache[creator]=(origin,original,graph)
+    return cache[creator]
+
+
+def _native_row_key(row):
+    return dict(execution_id=row['execution_id'],point_id=row['id'],point_attempt=row['attempt'])
+
+
+def _native_current_proof(row,child,snapshot):
+    key=_native_row_key(row)
+    return dict(row_key=key,mode='current',creator_calcjob_uuid=child.uuid,origin_row_key=key,
+        origin_result_uuid=None,origin_binding_uuid=None,hops=[],**snapshot)
+
+
+
+# Current closed selection: maximum default JSON835B (UUID36/SHA64/Id128/
+# UInt64/Count20/exact constants). This SQL-enforced4096B boundary also refuses
+# malformed originals before Python hydration. Client W excludes native DB engine
+# and shared SQLAlchemy/driver heap; it is not a process/RSS/physical-IO bound.
+_NATIVE_SCALAR_BYTES = 4096
+_NATIVE_SCALAR_METADATA = 65536 + (516 * _NATIVE_SCALAR_BYTES + 512) + (12 * _NATIVE_SCALAR_BYTES + 256)
+_NATIVE_SCALAR_IO = _NATIVE_SCALAR_BYTES + 4096
+_NATIVE_SCALAR_SQLITE_TEXT_SQL = "WITH ownership AS (SELECT edge.output_id FROM db_dblink AS edge JOIN db_dbnode AS creator ON creator.id = edge.input_id WHERE creator.uuid = ? AND edge.type = 'create' AND edge.label = 'selection' LIMIT 2) SELECT length(CAST(attributes AS BLOB)), CASE WHEN length(CAST(attributes AS BLOB)) <= ? THEN CAST(attributes AS TEXT) ELSE NULL END FROM db_dbnode WHERE uuid = ? AND node_type = ? AND id IN (SELECT output_id FROM ownership) AND (SELECT count(*) FROM ownership) = 1 LIMIT 2"
+_NATIVE_SCALAR_SQLITE_IDENTITY_SQL = "SELECT target.uuid, target.node_type FROM db_dbnode AS creator JOIN db_dblink AS edge ON edge.input_id = creator.id JOIN db_dbnode AS target ON target.id = edge.output_id WHERE creator.uuid = ? AND edge.type = 'create' AND edge.label = 'selection' LIMIT 2"
+_NATIVE_SCALAR_POSTGRES_IDENTITY_SQL = "SELECT target.uuid::text, target.node_type FROM db_dbnode AS creator JOIN db_dblink AS edge ON edge.input_id = creator.id JOIN db_dbnode AS target ON target.id = edge.output_id WHERE creator.uuid = %(creator_uuid)s::uuid AND edge.type = 'create' AND edge.label = 'selection' LIMIT 2"
+_NATIVE_SCALAR_POSTGRES_TEXT_SQL = "WITH ownership AS (SELECT edge.output_id FROM db_dblink AS edge JOIN db_dbnode AS creator ON creator.id = edge.input_id WHERE creator.uuid = %(creator_uuid)s::uuid AND edge.type = 'create' AND edge.label = 'selection' LIMIT 2) SELECT octet_length(convert_to(attributes::text, 'UTF8')), CASE WHEN octet_length(convert_to(attributes::text, 'UTF8')) <= %(maximum)s THEN attributes::text ELSE NULL END FROM db_dbnode WHERE uuid = %(uuid)s::uuid AND node_type = %(node_type)s AND id IN (SELECT output_id FROM ownership) AND (SELECT count(*) FROM ownership) = 1 LIMIT 2"
+
+
+def _native_scalar_rows(connection, statement, parameters=()):
+    """Only the fixed scalar statements below use this bounded cursor lifetime."""
+    result=connection.exec_driver_sql(statement,parameters)
+    try:rows=result.fetchmany(2)
+    except BaseException:
+        try:result.close()
+        except BaseException:pass
+        raise
+    result.close()
+    return rows
+
+
+def _native_scalar_value(backend, creator_uuid, ledger):
+    """Original CREATE scalar without ORM hydration; no creator-object getter.
+
+    The UUID/type lookup has its own snapshot. The conditional text statement
+    repeats unique CREATE ownership and has one snapshot for size/text. Stored
+    AiiDA operands/layout are qualified immutable source, not privileged SQL/VM
+    attestation. No borrowed session commit/rollback/close or transaction takeover.
+    """
+    ledger.reserve('bounded original scalar client workspace',metadata=_NATIVE_SCALAR_METADATA,io=_NATIVE_SCALAR_IO)
+    try:
+        import aiida,sqlalchemy
+        from aiida.storage.sqlite_dos.backend import SqliteDosStorage
+        from aiida.storage.psql_dos.backend import PsqlDosBackend
+        def require(ok,detail='native_scalar_backend_profile'):
+            if not ok:_fail('source_unavailable',detail)
+        _uuid(creator_uuid)
+        require(sys.implementation.name=='cpython' and sys.version_info[:3]==(3,14,7)
+                and aiida.__version__=='2.9.2' and sqlalchemy.__version__=='2.1.1'
+                and type(backend) in (SqliteDosStorage,PsqlDosBackend))
+        sqlite=type(backend) is SqliteDosStorage
+        if sqlite:
+            import sqlite3
+            require(sqlite3.sqlite_version=='3.53.4')
+        else:
+            import psycopg
+            require(psycopg.__version__=='3.3.6')
+        session=backend.get_session()
+        with session.no_autoflush:
+            connection=session.connection();dialect=connection.dialect
+            if sqlite:
+                require((dialect.name,dialect.driver,dialect.paramstyle)==('sqlite','pysqlite','qmark'))
+                require(_native_scalar_rows(connection,'PRAGMA encoding')==[('UTF-8',)],'native_scalar_backend_encoding')
+                identity_sql=_NATIVE_SCALAR_SQLITE_IDENTITY_SQL
+                identity_parameters=(creator_uuid,)
+            else:
+                require((dialect.name,dialect.driver,dialect.paramstyle)==('postgresql','psycopg','pyformat'))
+                require(_native_scalar_rows(connection,"SELECT current_setting('server_version_num'), current_setting('server_encoding'), current_setting('client_encoding')")==[('170011','UTF8','UTF8')],'native_scalar_backend_encoding')
+                identity_sql=_NATIVE_SCALAR_POSTGRES_IDENTITY_SQL
+                identity_parameters={'creator_uuid':creator_uuid}
+            require(_native_scalar_rows(connection,'SELECT version_num FROM alembic_version LIMIT 2')==[('main_0002',)],'native_scalar_backend_schema')
+            identities=_native_scalar_rows(connection,identity_sql,identity_parameters)
+            if len(identities)!=1 or identities[0][1]!=orm.Dict.class_node_type:
+                _fail('source_identity_mismatch','native_scalar_selection_CREATE')
+            uuid,node_type=identities[0];_uuid(uuid)
+            if sqlite:
+                rows=_native_scalar_rows(connection,_NATIVE_SCALAR_SQLITE_TEXT_SQL,(creator_uuid,_NATIVE_SCALAR_BYTES,uuid,node_type))
+            else:
+                rows=_native_scalar_rows(connection,_NATIVE_SCALAR_POSTGRES_TEXT_SQL,dict(creator_uuid=creator_uuid,maximum=_NATIVE_SCALAR_BYTES,uuid=uuid,node_type=node_type))
+        if len(rows)!=1:_fail('source_identity_mismatch','native_scalar_selection_missing')
+        size,text=rows[0]
+        if type(size) is not int or size<0:_fail('source_identity_mismatch','native_scalar_selection_encoding')
+        if size>_NATIVE_SCALAR_BYTES:
+            if text is not None:_fail('source_unavailable','native_scalar_backend_projection')
+            _fail('budget_exceeded','native_scalar_text_bound')
+        if type(text) is not str:_fail('source_identity_mismatch','native_scalar_selection_encoding')
+        raw=text.encode('utf-8')
+        if len(raw)!=size:_fail('source_identity_mismatch','native_scalar_selection_encoding')
+        return _json(raw,_NATIVE_SCALAR_BYTES)
+    except BaseException:
+        ledger.failed=True
+        raise
+
+def _native_selection(child,args,raw,result_pin,binding_pin):
+    return dict(calcjob_uuid=child.uuid,execution_id=args['selection']['execution_id'],attempt=args['selection']['attempt'],
+        result_sha256=_sha(raw),commits={},recovery_commit_sha256=None,native_result=result_pin,native_binding=binding_pin,
+        performance_status='unavailable',performance_reason='native_technical_context_unavailable')
+
+
+def _native_merge_snapshot(target,source):
+    for name in ('processes','codes','files','links'):
+        for item in source[name]:
+            if item not in target[name]:target[name].append(item)
+
+
+def _native_parent_proof(row,source,invocation,child,args,snapshot,origin,ledger,cache):
+    """Only observed existing INPUT_CALC hops; never add a workflow input."""
+    from aiida.common.links import LinkType
+    from .science_association import _binding_stored,_binding_source_matches
+    ledger.reserve('retained proof snapshot copy',metadata=_native_weight(snapshot))
+    proof=_native_current_proof(row,child,deepcopy(snapshot));proof['mode']='retained'
+    proof['creator_calcjob_uuid']=origin.uuid
+    current=child;visited={child.uuid};matches_by_parent=[]
+    while current.uuid!=origin.uuid:
+        binding_node=_native_related(current,LinkType.INPUT_CALC,'parent_binding',ledger,optional=True)
+        if binding_node is None:_fail('creator_proof_unavailable','actual_parent_binding_chain')
+        parent=_native_related(binding_node,LinkType.CREATE,'native_binding',ledger)
+        if (not isinstance(parent,orm.CalcJobNode) or parent.uuid in visited):
+            _fail('creator_proof_unavailable','acyclic_original_parent_binding_CREATE')
+        visited.add(parent.uuid)
+        if parent.uuid in cache:_,parent_args,parent_snapshot=cache[parent.uuid]
+        else:
+            parent_snapshot={};parent_args=_native_inputs(parent,ledger,snapshot=parent_snapshot)
+        if (any(parent_args[k]!=args[k] for k in ('frozen_plan','plan_node_uuid','source_graph','source_graph_node_uuid','execution_binding')) or
+                parent_args['selection']['run_uuid']!=args['selection']['run_uuid']):
+            _fail('source_identity_mismatch','native_parent_original_inputs')
+        _native_merge_snapshot(proof,parent_snapshot)
+        result_node=_native_related(parent,LinkType.CREATE,'result',ledger,outgoing=True)
+        raw_binding=_native_file(binding_node,ledger,maximum=1024*1024)
+        raw_result=_native_file(result_node,ledger,maximum=1024*1024)
+        if _native_result(parent,ledger)!=raw_result:_fail('source_identity_mismatch','native_parent_retrieved_raw')
+        value=_native_decode(raw_binding,1024*1024,ledger,'original parent binding decoding')
+        plan=scientific_plan(_native_decode(parent_args['frozen_plan'],1048576,ledger,'parent original plan decoding'))
+        ledger.reserve('parent stored structural projection',metadata=2*_native_weight(value)+8*len(raw_result))
+        projected=_binding_stored(value,raw_result,parent_args['selection'],plan,args['execution_binding'])
+        matches=[(key,r) for key,r in projected.items() if _binding_source_matches(source,r['source'])]
+        if not matches or any(r['source_invocation']!=invocation for _,r in matches):
+            _fail('source_identity_mismatch','native_parent_original_source_invocation')
+        scalar=_native_scalar_value(parent.backend,parent_args['selection']['calcjob_uuid'],ledger)
+        expected=_native_selection(parent,parent_args,raw_result,_native_pin(result_node,raw_result),_native_pin(binding_node,raw_binding))
+        if scalar!=expected:_fail('source_identity_mismatch','native_parent_scalar_pins')
+        proof['hops'].append(dict(child_calcjob_uuid=current.uuid,parent_binding_uuid=binding_node.uuid))
+        for src,dst,kind,label in ((binding_node,current,'input_calc','parent_binding'),
+                (parent,binding_node,'create','native_binding'),(parent,result_node,'create','result')):
+            proof['links'].append(dict(source_uuid=src.uuid,target_uuid=dst.uuid,type=kind,label=label))
+        proof['files'].extend([dict(node_uuid=binding_node.uuid,raw=raw_binding),dict(node_uuid=result_node.uuid,raw=raw_result)])
+        matches_by_parent.append((parent.uuid,matches))
+        if parent.uuid==origin.uuid:
+            key,original=matches[0]
+            proof.update(origin_result_uuid=result_node.uuid,origin_binding_uuid=binding_node.uuid,
+                origin_row_key=dict(execution_id=key[0],point_id=key[1],point_attempt=key[2]))
+        current=parent
+    for uuid,matches in matches_by_parent:
+        expected=dict(calcjob_uuid=origin.uuid,binding_uuid=None if uuid==origin.uuid else proof['origin_binding_uuid'])
+        if any(r['creator']!=expected for _,r in matches):_fail('source_identity_mismatch','native_parent_original_creator')
+    return proof
 
 
 def _native_result(child, ledger):
@@ -874,106 +1262,51 @@ def _native_result(child, ledger):
     return raw
 
 
-def _native_manifest(root, reference, ledger):
-    from qcl_negf_contracts.results import validate_manifest
-    ledger.results('original manifest full FileRef')
-    size=int(reference['bytes'])
-    if size>_NATIVE_OPERATION_METADATA//8:_fail('budget_exceeded','native_manifest_bound')
-    # Open every component relative to the previous directory FD. No path
-    # component (including ancestry) may be replaced by a followed symlink.
-    parts=Path(root).parts
-    if not Path(root).is_absolute():_fail('source_identity_mismatch','native_root_absolute')
-    directory=os.open('/',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-    try:
-        for part in (*parts[1:],*_relative(reference['path']).split('/')[:-1]):
-            nxt=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=directory)
-            os.close(directory);directory=nxt
-        fd=os.open(reference['path'].split('/')[-1],os.O_RDONLY|os.O_NOFOLLOW,dir_fd=directory)
-        with os.fdopen(fd,'rb') as stream:
-            before=os.fstat(stream.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_size!=size:_fail('source_identity_mismatch','native_manifest_stat')
-            raw=stream.read(size+1);after=os.fstat(stream.fileno())
-            current=os.stat(reference['path'].split('/')[-1],dir_fd=directory,follow_symlinks=False)
-            stamp=lambda s:(s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
-            if stamp(before)!=stamp(after) or stamp(before)!=stamp(current) or len(raw)!=size or _sha(raw)!=reference['sha256']:
-                _fail('source_identity_mismatch','native_manifest_original_bytes')
-    finally:os.close(directory)
-    return validate_manifest(_native_decode(raw,_NATIVE_OPERATION_METADATA,ledger,'original manifest decoding'))
-
-
-@contextmanager
-def _native_final_reader(reader):
-    """Close a public final reader once without replacing a primary error."""
-    try:
-        yield reader
-    except BaseException:
-        try:reader.close()
-        except BaseException:pass
-        raise
-    else:reader.close()
-
-
 def _native_contexts(root, source, plan_ref, model_ref, args, ledger):
-    from qcl_negf_results.state import StateReader,ResultReadLimits
-    from qcl_negf_results.final_observations import describe_checkpoint_inputs,FinalObservationsReader
-    from qcl_negf_results.final_diagnostics import FinalDiagnosticsReader
+    from qcl_negf_results.state import ResultReadLimits
+    from qcl_negf_results.final_observations import describe_native_metadata_context
     from qcl_negf_contracts.outward import validate_outward_native_source
-    state=source['selected_state'];manifest=_native_manifest(root,state['manifest'],ledger)
+    state=source['selected_state']
     limits=ResultReadLimits(maximum_metadata_bytes=_NATIVE_OPERATION_METADATA,maximum_io_bytes=_NATIVE_OPERATION_IO,
         maximum_catalog_pages=16,maximum_catalog_entries=256,maximum_catalog_bytes=_NATIVE_OPERATION_METADATA,
         maximum_open_files=4,maximum_record_bytes=65536,maximum_batch_bytes=65536,maximum_batch_records=16,
         maximum_hdf_objects=4096,maximum_hdf_depth=32,maximum_array_bytes=65536)
-    ledger.results('StateReader construction')
-    reader=StateReader(root,state_ref=state,expected_identity=state['identity'],limits=limits)
-    # Preserve a primary exception/cancellation if close also fails.
-    try:
-        ledger.results('StateReader source')
-        selected=reader.source
-        ledger.results('StateReader checkpoint')
-        checkpoint=reader.checkpoint()
-        ledger.results('describe_checkpoint_inputs')
-        cp=describe_checkpoint_inputs(reader,plan_ref=plan_ref,model_ref=model_ref)
-        if (cp.plan_raw!=args['frozen_plan'] or cp.plan_ref!=plan_ref or cp.model_ref!=model_ref
-                or manifest['provenance']!=args['source_graph']['value']
-                or cp.model['configuration_hash']!=state['identity']['model_sha256']):
-            _fail('source_identity_mismatch','native_original_plan_model_graph')
-        plan=scientific_plan(_native_decode(args['frozen_plan'],65536,ledger,'selected original plan decoding'))
-        points=[p for p in plan['points'] if p['id']==state['identity']['point_id'] and p['execution_id']==args['selection']['execution_id']]
-        if len(points)!=1 or points[0]['effective_inputs'].get('model_sha256')!=cp.model['configuration_hash']:
-            _fail('source_identity_mismatch','native_effective_model')
-        diagnostics=observations=final_plan=final_model=None
-        if source['kind']=='final':
-            ledger.results('FinalDiagnosticsReader construction')
-            with _native_final_reader(FinalDiagnosticsReader(reader,artifact_ref=source['diagnostics'])) as final:
-                ledger.results('FinalDiagnosticsReader describe')
-                diagnostic=final.describe()
-            ledger.results('FinalObservationsReader construction')
-            with _native_final_reader(FinalObservationsReader(reader,artifact_ref=source['observations'])) as final:
-                ledger.results('FinalObservationsReader describe')
-                observation=final.describe()
-            diagnostics=diagnostic.declaration;observations=observation.declaration
-            final_plan=observation.plan;final_model=observation.model
-            if observation.invocation!=selected.invocation or diagnostic.invocation!=selected.invocation:
-                _fail('source_identity_mismatch','native_final_invocation')
-        if observations is not None and observations.get('source_mode')=='restored':
-            _fail('source_unavailable','qualified_immediate_parent_context')
-        context=dict(source=source,manifest=manifest,manifest_ref=state['manifest'],checkpoint=checkpoint,
-            diagnostics=diagnostics,observations=observations,plan=final_plan,model=final_model,parent_manifest=None,parent_checkpoint=None)
-        validate_outward_native_source(source,**{k:v for k,v in context.items() if k!='source'})
-        ledger.reserve('detached selected context',metadata=_native_weight(context))
-        detached=deepcopy(context)
-    except BaseException:
-        try:reader.close()
-        except BaseException:pass
-        raise
-    else:reader.close()
-    return detached
+    ledger.results('closed Results metadata context')
+    manifest,checkpoint,cp,diagnostic,observation=describe_native_metadata_context(root,
+        state_ref=state,expected_identity=state['identity'],plan_ref=plan_ref,model_ref=model_ref,
+        diagnostics_ref=source['diagnostics'] if source['kind']=='final' else None,
+        observations_ref=source['observations'] if source['kind']=='final' else None,limits=limits,
+        maximum_context_bytes=_NATIVE_RESULTS_WORKSPACE,maximum_retained_bytes=_NATIVE_RETAINED_SLOT)
+    if (cp.plan_raw!=args['frozen_plan'] or cp.plan_ref!=plan_ref or cp.model_ref!=model_ref
+            or manifest['provenance']!=args['source_graph']['value']
+            or cp.model['configuration_hash']!=state['identity']['model_sha256']):
+        _fail('source_identity_mismatch','native_original_plan_model_graph')
+    plan=scientific_plan(_native_decode(args['frozen_plan'],1048576,ledger,'selected original plan decoding'))
+    points=[p for p in plan['points'] if p['id']==state['identity']['point_id'] and p['execution_id']==args['selection']['execution_id']]
+    if len(points)!=1 or points[0]['effective_inputs'].get('model_sha256')!=cp.model['configuration_hash']:
+        _fail('source_identity_mismatch','native_effective_model')
+    diagnostics=None if diagnostic is None else diagnostic.declaration
+    observations=None if observation is None else observation.declaration
+    if observations is not None and observations.get('source_mode')=='completed_restore':
+        _fail('source_unavailable','qualified_immediate_parent_context')
+    if observation is not None and (observation.invocation!=manifest['invocation'] or diagnostic.invocation!=manifest['invocation']):
+        _fail('source_identity_mismatch','native_final_invocation')
+    # Public objects are detached and exclusively owned after successful close.
+    # This small projection aliases them; its later binder deepcopy is separately paid.
+    ledger.reserve('closed context projection',metadata=4096+_native_weight(source))
+    context=dict(source=source,manifest=manifest,manifest_ref=state['manifest'],checkpoint=checkpoint,
+        diagnostics=diagnostics,observations=observations,plan=None if observation is None else observation.plan,
+        model=None if observation is None else observation.model,parent_manifest=None,parent_checkpoint=None)
+    validate_outward_native_source(source,**{k:v for k,v in context.items() if k!='source'})
+    ledger.workspaces()
+    return context
 
 
 def _load_native_binding_inputs(child: orm.CalcJobNode, raw_result: bytes, *,
                                 maximum_metadata_bytes: int, maximum_io_bytes: int) -> dict:
-    ledger=_native_credit(maximum_metadata_bytes,maximum_io_bytes)
-    return _load_native_binding_inputs_with_ledger(child,raw_result,ledger)
+    with _native_operation(maximum_metadata_bytes,maximum_io_bytes):
+        ledger=_native_credit(maximum_metadata_bytes,maximum_io_bytes)
+        return _load_native_binding_inputs_with_ledger(child,raw_result,ledger)
 
 
 def _load_native_binding_inputs_with_ledger(child,raw_result,ledger):
@@ -982,11 +1315,11 @@ def _load_native_binding_inputs_with_ledger(child,raw_result,ledger):
     if type(raw_result) is not bytes:_fail('corrupt_result','native_raw_bytes_required')
     ledger.reserve('borrowed original result/decoded workspace',metadata=8*len(raw_result))
     if _native_result(child,ledger)!=raw_result:_fail('source_identity_mismatch','native_retrieved_raw')
-    args=_native_inputs(child,ledger)
+    snapshot={};args=_native_inputs(child,ledger,snapshot=snapshot)
     result=validate_outward_result(_native_decode(raw_result,1024*1024,ledger,'outward result decoding'))
     rows=result['points']+result.get('attempt_history',[])
     ledger.reserve('A selected access full lifetime',metadata=8*1024*1024,io=64*1024*1024)
-    contexts=[];missing=[]
+    contexts=[];context_rows=[];proofs=[];missing=[];origin_cache={}
     with open_native_selected_sources(child.uuid,maximum_metadata_bytes=8*1024*1024,maximum_io_bytes=64*1024*1024) as (original,sources,technical):
         if original!=raw_result or technical is not None:_fail('source_identity_mismatch','native_access_result_or_technical')
         # First-seen selected root/StateRef order is mandatory; no digest search,
@@ -1001,47 +1334,64 @@ def _load_native_binding_inputs_with_ledger(child,raw_result,ledger):
             root,actual,plan_ref,model_ref=provided
             if actual!=source:_fail('source_identity_mismatch','native_source_order_or_ref')
             contexts.append(_native_contexts(root,source,plan_ref,model_ref,args,ledger))
-        if unique:
-            # Original current INPUT/CALL and selected byte access are verified
-            # above, but none carries an immutable invocation -> CalcJob origin
-            # relation. A row relation/counter/publisher cannot fill that gap.
-            # parent_binding has no owning public input in the current frontier;
-            # do not invent one or drop this row to make the binder succeed.
-            for row in rows:
-                if row['data']['native_source']['kind']!='absent':
-                    missing.append(dict(execution_id=row['execution_id'],point_id=row['id'],point_attempt=row['attempt'],
-                        operand='original_invocation_calcjob_origin',invocation=next(c['manifest']['invocation'] for c in contexts
-                            if c['source']['selected_state']==row['data']['native_source']['selected_state'])))
+        seen=set()
+        for row in rows:
+            source=row['data']['native_source']
+            if source['kind']=='absent':continue
+            key=(row['execution_id'],row['id'],row['attempt'])
+            same_state=lambda other:other['artifact_root']==source['artifact_root'] and other['selected_state']==source['selected_state']
+            context=next((c for c in contexts if same_state(c['source']) and c['source']['kind']==source['kind']),None)
+            if context is None:
+                root,_,plan_ref,model_ref=next(p for p in sources if same_state(p[1]))
+                context=_native_contexts(root,source,plan_ref,model_ref,args,ledger)
+                contexts.append(context)
+            context=dict(context,source=source)
+            if key in seen:continue
+            seen.add(key)
+            context=dict(context,row_key=_native_row_key(row))
+            try:
+                origin,_,_=_native_origin(child,args,snapshot,context['manifest']['invocation'],ledger,origin_cache)
+                proof=(_native_current_proof(row,child,snapshot) if origin.uuid==child.uuid else
+                    _native_parent_proof(row,source,context['manifest']['invocation'],child,args,snapshot,origin,ledger,origin_cache))
+                proofs.append(proof)
+            except SourceError as error:
+                if error.code!='creator_proof_unavailable':raise
+                missing.append(dict(**_native_row_key(row),operand=error.detail,invocation=context['manifest']['invocation']))
+            # There is one binder context for each unique point/history RowKey.
+            context_rows.append(context)
     # A must finish its successful close/readback before any output constructor.
     if missing:_fail('creator_proof_unavailable',missing)
-    args.update(raw_result=raw_result,source_contexts=(),creator_proofs=(),maximum_metadata_bytes=_NATIVE_OPERATION_METADATA)
+    args.update(raw_result=raw_result,source_contexts=tuple(context_rows),creator_proofs=tuple(proofs),maximum_metadata_bytes=_NATIVE_OPERATION_METADATA)
     ledger.reserve('detached binder arguments',metadata=_native_weight(args))
     return deepcopy(args)
 
 
 def _prepare_native_outputs(child: orm.CalcJobNode, raw_result: bytes, *,
                             maximum_metadata_bytes: int, maximum_io_bytes: int) -> tuple[orm.SinglefileData,orm.SinglefileData]:
-    import io
-    from .science_association import bind_native_result
-    from aiida.common.links import LinkType
-    ledger=_native_credit(maximum_metadata_bytes,maximum_io_bytes)
-    for name in ('result','native_binding','selection'):
-        if _native_related(child,LinkType.CREATE,name,ledger,outgoing=True,optional=True) is not None:
-            _fail('source_identity_mismatch','native_outputs_already_exist')
-    args=_load_native_binding_inputs_with_ledger(child,raw_result,ledger)
-    ledger.reserve('pure binder full allowance',metadata=_NATIVE_OPERATION_METADATA)
-    binding=bind_native_result(**args)
-    binding.update(schema='qcl-negf.aiida-native-binding.v1',integrity=dict(_NATIVE_INTEGRITY))
-    ledger.reserve('binding encoding/output constructors/readback',metadata=3*_native_weight(binding)+4*len(raw_result),io=2*_NATIVE_OPERATION_METADATA)
-    binding_raw=_canonical(binding)
-    return (orm.SinglefileData(file=io.BytesIO(raw_result),filename='series_result.json'),
-            orm.SinglefileData(file=io.BytesIO(binding_raw),filename='native-binding.json'))
+    with _native_operation(maximum_metadata_bytes,maximum_io_bytes):
+        import io
+        from .science_association import bind_native_result
+        from aiida.common.links import LinkType
+        ledger=_native_credit(maximum_metadata_bytes,maximum_io_bytes)
+        for name in ('result','native_binding','selection'):
+            if _native_related(child,LinkType.CREATE,name,ledger,outgoing=True,optional=True) is not None:
+                _fail('source_identity_mismatch','native_outputs_already_exist')
+        args=_load_native_binding_inputs_with_ledger(child,raw_result,ledger)
+        ledger.workspaces()
+        ledger.reserve('pure binder argument copy/workspace',metadata=2*_native_weight(args)+8*len(raw_result))
+        binding=bind_native_result(**args)
+        ledger.workspaces()
+        binding.update(schema='qcl-negf.aiida-native-binding.v1',integrity=dict(_NATIVE_INTEGRITY))
+        ledger.reserve('binding encoding/output constructors/readback',metadata=3*_native_weight(binding)+4*len(raw_result),io=2*_NATIVE_OPERATION_METADATA)
+        binding_raw=_canonical(binding)
+        return (orm.SinglefileData(file=io.BytesIO(raw_result),filename='series_result.json'),
+                orm.SinglefileData(file=io.BytesIO(binding_raw),filename='native-binding.json'))
 
 
 def _native_readback(child,expected_result,expected_binding,ledger):
     from aiida.common.links import LinkType
-    from .science_association import bind_native_result
-    args=_native_inputs(child,ledger)
+    from .science_association import bind_native_result,_binding_stored
+    snapshot={};args=_native_inputs(child,ledger,snapshot=snapshot)
     originals={}
     for name,expected in (('result',expected_result),('native_binding',expected_binding)):
         node=_native_related(child,LinkType.CREATE,name,ledger,outgoing=True)
@@ -1050,47 +1400,59 @@ def _native_readback(child,expected_result,expected_binding,ledger):
         originals[name]=(node,raw)
     raw=originals['result'][1];binding=_native_decode(originals['native_binding'][1],1024*1024,ledger,'retained binding decoding')
     if _native_result(child,ledger)!=raw:_fail('source_identity_mismatch','native_pair_retrieved_raw')
-    # Repeated offline verification cannot renew source access or invocation
-    # authority. Only absent-source projection has a complete current proof.
+    # The original CREATE binding is a stored structural projection. Re-read its
+    # immutable c1/input/script operands; never manufacture CP/manifest contexts.
     from qcl_negf_contracts.outward import validate_outward_result
     result=validate_outward_result(_native_decode(raw,1024*1024,ledger,'retained original result decoding'))
-    if any(r['data']['native_source']['kind']!='absent' for r in result['points']+result.get('attempt_history',[])):
-        _fail('creator_proof_unavailable','original_invocation_calcjob_origin')
-    args.update(raw_result=raw,source_contexts=(),creator_proofs=(),maximum_metadata_bytes=_NATIVE_OPERATION_METADATA)
-    ledger.reserve('offline pure binder full allowance',metadata=_NATIVE_OPERATION_METADATA)
-    expected=bind_native_result(**args)
-    expected.update(schema='qcl-negf.aiida-native-binding.v1',integrity=dict(_NATIVE_INTEGRITY))
-    ledger.reserve('offline comparison encodings',metadata=2*_native_weight(expected))
-    if not _same(binding,expected):_fail('source_identity_mismatch','native_binding_original_projection')
-    selection=dict(calcjob_uuid=child.uuid,execution_id=args['selection']['execution_id'],attempt=args['selection']['attempt'],
-        result_sha256=_sha(raw),commits={},recovery_commit_sha256=None,native_result=expected_result,native_binding=expected_binding,
-        performance_status='unavailable',performance_reason='native_technical_context_unavailable')
+    plan=scientific_plan(_native_decode(args['frozen_plan'],1048576,ledger,'offline original plan decoding'))
+    ledger.reserve('offline stored structural projection',metadata=2*_native_weight(binding))
+    projected=_binding_stored(binding,raw,args['selection'],plan,args['execution_binding'])
+    cache={}
+    for row in projected.values():
+        if row['source']['kind']=='absent':continue
+        origin,_,_=_native_origin(child,args,snapshot,row['source_invocation'],ledger,cache)
+        binding_uuid=None
+        if origin.uuid!=child.uuid:
+            original_row=dict(execution_id=args['selection']['execution_id'],id=row['point_id'],attempt=row['point_attempt'])
+            proof=_native_parent_proof(original_row,row['source'],row['source_invocation'],child,args,snapshot,origin,ledger,cache)
+            binding_uuid=proof['origin_binding_uuid']
+        if row['creator']!=dict(calcjob_uuid=origin.uuid,binding_uuid=binding_uuid):
+            _fail('source_identity_mismatch','native_stored_original_creator')
+    if not any(r['data']['native_source']['kind']!='absent' for r in result['points']+result.get('attempt_history',[])):
+        args.update(raw_result=raw,source_contexts=(),creator_proofs=(),maximum_metadata_bytes=_NATIVE_OPERATION_METADATA)
+        ledger.workspaces()
+        ledger.reserve('offline pure binder argument copy/workspace',metadata=2*_native_weight(args)+8*len(raw))
+        expected=bind_native_result(**args)
+        expected.update(schema='qcl-negf.aiida-native-binding.v1',integrity=dict(_NATIVE_INTEGRITY))
+        ledger.reserve('offline comparison encodings',metadata=2*_native_weight(expected))
+        if not _same(binding,expected):_fail('source_identity_mismatch','native_binding_original_projection')
+    ledger.workspaces()
+    selection=_native_selection(child,args,raw,_native_pin(*originals['result']),_native_pin(*originals['native_binding']))
     return selection,binding,raw,args['selection']
 
 
 def _readback_native_outputs(child: orm.CalcJobNode, *, expected_result: dict,
                              expected_binding: dict, maximum_metadata_bytes: int) -> dict:
-    ledger=_native_credit(maximum_metadata_bytes,_NATIVE_IO)
-    selection,_,_,_=_native_readback(child,expected_result,expected_binding,ledger)
-    ledger.reserve('detached scalar selection',metadata=_native_weight(selection))
-    return deepcopy(selection)
+    with _native_operation(maximum_metadata_bytes,_NATIVE_IO):
+        ledger=_native_credit(maximum_metadata_bytes,_NATIVE_IO)
+        selection,_,_,_=_native_readback(child,expected_result,expected_binding,ledger)
+        ledger.reserve('detached scalar selection',metadata=_native_weight(selection))
+        return deepcopy(selection)
 
 
 def _retained_native_result_source(child: orm.CalcJobNode, *, point_id: str,
                                     binding_uuid: str | None = None, maximum_metadata_bytes: int) -> dict:
-    from aiida.common.links import LinkType
-    ledger=_native_credit(maximum_metadata_bytes,_NATIVE_IO)
-    node=_native_related(child,LinkType.CREATE,'selection',ledger,outgoing=True)
-    if not isinstance(node,orm.Dict):_fail('source_identity_mismatch','native_scalar_selection_type')
-    ledger.reserve('selection Dict decoding',metadata=_NATIVE_OPERATION_METADATA)
-    pin=node.get_dict()
-    if binding_uuid is not None and pin.get('native_binding',{}).get('node_uuid')!=binding_uuid:
-        _fail('source_identity_mismatch','native_binding_expectation')
-    selection,binding,raw,_=_native_readback(child,pin.get('native_result'),pin.get('native_binding'),ledger)
-    if pin!=selection:_fail('source_identity_mismatch','native_scalar_selection_changed')
-    rows=[r for r in binding['points'] if r['point_id']==point_id]
-    if len(rows)!=1:_fail('source_identity_mismatch','native_exact_selected_point')
-    ledger.reserve('offline response encoding/copies',metadata=2*_native_weight(binding)+8*len(raw))
-    return dict(status='available',point=deepcopy(rows[0]),binding=deepcopy(binding),result_utf8=raw.decode('utf-8'),
-        native_result=deepcopy(selection['native_result']),native_binding=deepcopy(selection['native_binding']),
-        integrity=dict(native_contexts='not_reverified',current_access='not_checked',scientific_acceptance='not_assessed'))
+    with _native_operation(maximum_metadata_bytes,_NATIVE_IO):
+        from aiida.common.links import LinkType
+        ledger=_native_credit(maximum_metadata_bytes,_NATIVE_IO)
+        pin=_native_scalar_value(child.backend,child.uuid,ledger)
+        if binding_uuid is not None and pin.get('native_binding',{}).get('node_uuid')!=binding_uuid:
+            _fail('source_identity_mismatch','native_binding_expectation')
+        selection,binding,raw,_=_native_readback(child,pin.get('native_result'),pin.get('native_binding'),ledger)
+        if pin!=selection:_fail('source_identity_mismatch','native_scalar_selection_changed')
+        rows=[r for r in binding['points'] if r['point_id']==point_id]
+        if len(rows)!=1:_fail('source_identity_mismatch','native_exact_selected_point')
+        ledger.reserve('offline response encoding/copies',metadata=2*_native_weight(binding)+8*len(raw))
+        return dict(status='available',point=deepcopy(rows[0]),binding=deepcopy(binding),result_utf8=raw.decode('utf-8'),
+            native_result=deepcopy(selection['native_result']),native_binding=deepcopy(selection['native_binding']),
+            integrity=dict(native_contexts='not_reverified',current_access='not_checked',scientific_acceptance='not_assessed'))
