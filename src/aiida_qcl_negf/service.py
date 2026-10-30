@@ -1007,3 +1007,18 @@ def get_live_history_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
     from .live_sources import get_live_history_source as operation
     return operation(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid,
                      point_id=point_id, source_attempt=source_attempt, namespace_id=namespace_id)
+
+
+def get_native_result_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
+                             point_id, binding_uuid=None) -> dict:
+    """Exact retained ORM/raw view, without renewing native source access."""
+    from .saved_sources import _retained_native_result_source, _NATIVE_METADATA
+    if attempt is None or calcjob_uuid is None:
+        raise ValueError('exact native attempt and CalcJob UUID required')
+    child,actual_attempt,actual_uuid=_export_child(run_uuid,execution_id,attempt=attempt,calcjob_uuid=calcjob_uuid)
+    if (actual_attempt,actual_uuid)!=(attempt,calcjob_uuid):
+        raise ValueError('native selected child differs')
+    view=_retained_native_result_source(child,point_id=point_id,binding_uuid=binding_uuid,maximum_metadata_bytes=_NATIVE_METADATA)
+    if view['binding']['selection']['run_uuid']!=run_uuid:
+        raise ValueError('native retained run differs')
+    return view

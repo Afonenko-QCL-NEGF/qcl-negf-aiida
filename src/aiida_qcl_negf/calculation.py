@@ -11,7 +11,7 @@ import shlex
 
 from aiida import orm
 from aiida.common.datastructures import CalcInfo, CodeInfo
-from aiida.engine import CalcJob
+from aiida.engine import CalcJob, ExitCode
 
 from .validation import MAX_PLAN_BYTES, validate_plan, validate_scratch_root
 from .data import read_plan
@@ -40,6 +40,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.input("metadata.options.withmpi", default=False)
         spec.input("metadata.options.output_filename", default="solver.stdout")
         spec.output("result", valid_type=orm.SinglefileData, required=False)
+        spec.output("native_binding", valid_type=orm.SinglefileData, required=False)
         spec.output("native_submit_script", valid_type=orm.SinglefileData, required=False)
         spec.output("inventory", valid_type=orm.Dict, required=False)
         spec.output("delivery", valid_type=orm.Dict, required=False)
@@ -55,6 +56,46 @@ class QCLExecutionCalculation(CalcJob):
         spec.exit_code(304, "PAUSED_WITH_RECOVERY", message="Attempt paused after a verified recovery publication")
         spec.exit_code(306, "B0_LOCAL_RAW_DELIVERY_PENDING", message="Local raw verified; bounded repository delivery is pending")
         spec.exit_code(305, "ERROR_INVALID_RECOVERY", message="Recovery or pause receipt is missing, corrupt or incompatible")
+
+    def parse_retrieved_output(self, retrieved_temporary_folder: str | None = None) -> ExitCode | None:
+        if "source_graph" not in self.inputs and "native_execution" not in self.inputs:
+            return super().parse_retrieved_output(retrieved_temporary_folder)
+        from .saved_sources import (_native_operation, _native_pin, _native_related,
+            _readback_native_outputs, _NATIVE_METADATA, _NATIVE_IO, _native_weight, _fail)
+        from aiida.common.links import LinkType
+        with _native_operation(_NATIVE_METADATA,_NATIVE_IO) as ledger:
+            exit_code=super().parse_retrieved_output(retrieved_temporary_folder)
+            # The parser emits only an all-validated unstored pair. The owning
+            # Process writes genuine CREATE edges, then reads them back before
+            # it constructs the scalar selection. Partial failures never delete
+            # or reconstruct existing nodes and preserve the original exit code.
+            if 'result' not in self.outputs or 'native_binding' not in self.outputs:
+                return exit_code or self.exit_codes.ERROR_INVALID_RESULT
+            try:
+                expected={}
+                for name in ('result','native_binding'):
+                    node=self.outputs[name]
+                    ledger.reserve('pending output repository copy/readback',metadata=8192)
+                    with node.open(mode='rb') as stream:
+                        stream.seek(0,2);size=stream.tell()
+                        ledger.reserve('pending output exact bytes',metadata=8*(size+1),io=size+1)
+                        stream.seek(0);raw=stream.read(size+1)
+                    if len(raw)!=size:_fail('source_identity_mismatch','native_pending_output_changed')
+                    expected[name]=_native_pin(node,raw)
+                self.update_outputs()
+                scalar=_readback_native_outputs(self.node,expected_result=expected['result'],
+                    expected_binding=expected['native_binding'],maximum_metadata_bytes=_NATIVE_METADATA)
+                ledger.reserve('scalar selection constructor/readback',metadata=2*_native_weight(scalar))
+                selection=orm.Dict(dict=scalar)
+                self.out('selection',selection)
+                self.update_outputs()
+                actual=_native_related(self.node,LinkType.CREATE,'selection',ledger,outgoing=True)
+                if not isinstance(actual,orm.Dict) or actual.uuid!=selection.uuid or actual.get_dict()!=scalar:
+                    _fail('source_identity_mismatch','native_selection_CREATE_readback')
+            except (ValueError,TypeError,KeyError,AttributeError,OSError) as exception:
+                self.logger.error('Native output readback unavailable: %s',exception)
+                return exit_code or self.exit_codes.ERROR_INVALID_RESULT
+            return exit_code
 
     def _setup_metadata(self, metadata):
         """Bind Slurm ownership before the immutable CalcJob node is stored."""

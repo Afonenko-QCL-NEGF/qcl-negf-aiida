@@ -23,6 +23,8 @@ class QCLExecutionParser(Parser):
     def parse(self, **kwargs):
         if "b0_reference" in self.node.inputs:
             return self._parse_b0()
+        if "source_graph" in self.node.inputs or "native_execution" in self.node.inputs:
+            return self._parse_native(**kwargs)
         # Cache sizes once after retrieval. Repeated portal polling must not seek
         # through every large compressed HDF5 object in the repository.
         files = []
@@ -129,33 +131,12 @@ class QCLExecutionParser(Parser):
             "commits": commits,
             "recovery_commit_sha256": selected["commit_sha256"] if selected else None}
         if "performance-binding.json" in paths:
-            try:
-                from .performance_binding import MAX_METADATA, verify_sidecar
-                from .science_association import source_point_owner
-                from .saved_sources import _Budget
-                with repository.open("performance-binding.json", "rb") as stream:
-                    sidecar_raw = stream.read(MAX_METADATA + 1)
-                proofs = {self.node.uuid: (result, selection)}
-                owner_budget = _Budget(8 * MAX_METADATA)
-                owners = {}
-                for point_id, commit in commits.items():
-                    identity = commit["identity"]
-                    owners[point_id] = source_point_owner(self.node, identity["attempt"], self.node.inputs.plan.uuid,
-                        point_id=point_id, commit_sha256=commit["commit_sha256"], identity=identity, proofs=proofs,budget=owner_budget,
-                        scientific_fingerprint=plan["scientific_fingerprint"])
-                binding = verify_sidecar(sidecar_raw,
-                    selection={"calcjob_uuid": self.node.uuid, "execution_id": execution_id,
-                               "attempt": attempt, "plan_fingerprint": plan["fingerprint"]},
-                    result_raw=raw, points=result["points"], commits=commits, source_owners=owners)
-                sidecar_node = orm.SinglefileData(file=io.BytesIO(sidecar_raw), filename="performance-binding.json")
-                self.out("performance_binding", sidecar_node)
-                selection["performance_binding"] = {**binding, "sidecar_uuid": sidecar_node.uuid}
-                selection["performance_status"] = "verified"
-            except (ValueError, TypeError, KeyError, OSError, ImportError) as exception:
-                # Observability cannot change scientific result/exit or retry work.
-                self.logger.warning("Performance binding unavailable/invalid: %s", exception)
-                selection["performance_status"] = "invalid"
-                selection["performance_reason"] = "performance_binding_rejected_raw_retained"
+            # The v1 sidecar adapter used retired Results keyword arguments.
+            # Keep the original packet in retrieved and refuse it explicitly;
+            # optional observability never changes science outputs or exit.
+            selection["performance_status"] = "invalid"
+            selection["performance_reason"] = "legacy_performance_binding_v1_retired"
+            self.logger.warning("legacy_performance_binding_v1_retired; raw retained")
         else:
             selection["performance_status"] = "unavailable"
         self.out("selection", orm.Dict(dict=selection))
@@ -168,6 +149,36 @@ class QCLExecutionParser(Parser):
         if any(point["status"] not in {"completed", "completed_with_warnings"} for point in result["points"]):
             return self.exit_codes.ERROR_SCIENTIFIC_FAILURE
         if any(not point["converged"] for point in result["points"]):
+            return self.exit_codes.ERROR_UNCONVERGED_RESULT
+
+    def _parse_native(self, **kwargs):
+        """Preserve original native bytes; publish only a complete detached pair."""
+        from .saved_sources import (_native_operation, _native_result, _prepare_native_outputs,
+                                    _NATIVE_METADATA, _NATIVE_IO)
+        try:
+            with _native_operation(_NATIVE_METADATA,_NATIVE_IO) as ledger:
+                raw=_native_result(self.node,ledger)
+                ledger.reserve('parser status decoding',metadata=512*(1+sum(raw.count(c) for c in (b'{',b'}',b'[',b']',b',',b':')))+4*len(raw))
+                result=decode(raw,maximum=MAX_RESULT_BYTES)
+                result_node,binding_node=_prepare_native_outputs(self.node,raw,
+                    maximum_metadata_bytes=_NATIVE_METADATA,maximum_io_bytes=_NATIVE_IO)
+        except FileNotFoundError:
+            return self.exit_codes.ERROR_MISSING_RESULT
+        except (ValueError,TypeError,KeyError,OSError,ValidationError) as exception:
+            self.logger.error("Native source unavailable: %s; %s",exception,getattr(exception,'detail',None))
+            return self.exit_codes.ERROR_INVALID_RESULT
+        self.out('result',result_node)
+        self.out('native_binding',binding_node)
+        # Outputs are retained also for negative scientific outcomes. A complete
+        # provenance packet is distinct from convergence/scientific acceptance.
+        if result['status']=='paused':
+            return self.exit_codes.ERROR_INVALID_RECOVERY
+        expected=set(result['executions'][0]['point_ids'])
+        if (result['status'] not in {'completed','completed_with_warnings'}
+                or {p['id'] for p in result['points']}!=expected
+                or any(p['status'] not in {'completed','completed_with_warnings'} for p in result['points'])):
+            return self.exit_codes.ERROR_SCIENTIFIC_FAILURE
+        if any(not p['converged'] for p in result['points']):
             return self.exit_codes.ERROR_UNCONVERGED_RESULT
 
     def _parse_b0(self):
