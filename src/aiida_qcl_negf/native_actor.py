@@ -19,6 +19,7 @@ from qcl_negf_contracts.messages import decode, encode, scientific_plan
 from . import science_association as association
 
 MAX_FILE = 65536
+MAX_PLAN = 1024 * 1024
 MAX_METADATA = 8 * 1024 * 1024
 SCHEDULER = "qcl_negf.native_slurm"
 TRANSPORT = "qcl_negf.native_local"
@@ -76,23 +77,33 @@ class _Reads:
         self.charge(0)
         return rows
 
-    def file(self, node):
+    def file(self, node, *, role="metadata"):
+        _need(role in ("metadata", "plan", "source_graph", "native_execution", "submit_script"), "input_file_role")
+        limit = MAX_PLAN if role == "plan" else MAX_FILE
         orm = _orm()
         _need(isinstance(node, orm.SinglefileData), "singlefile_input_required")
         if node.uuid not in self.cache:
-            # Charge raw/JSON workspace before opening/allocating the buffer.
+            # Prepay the first raw/JSON chunk before opening or allocating its
+            # buffer; later chunks and the EOF request keep the same ledger.
+            size = min(4096, limit + 1)
+            self.charge(8 * size)
             raw = bytearray()
             with node.open(mode="rb") as stream:
-                while len(raw) <= MAX_FILE:
-                    size = min(4096,MAX_FILE+1-len(raw))
-                    self.charge(8 * size)
+                while len(raw) <= limit:
                     chunk = stream.read(size)
                     if not chunk:
                         break
                     raw.extend(chunk)
-            _need(len(raw) <= MAX_FILE, "input_file_bound")
+                    if len(raw) > limit:
+                        break
+                    size = min(4096, limit + 1 - len(raw))
+                    self.charge(8 * size)
+            _need(len(raw) <= limit, "input_file_bound")
             self.charge(0)
             self.cache[node.uuid] = bytes(raw)
+        # An immutable node reused in another role must satisfy that role even
+        # on a cache hit; a plan cannot lend its allowance to graph/script bytes.
+        _need(len(self.cache[node.uuid]) <= limit, "input_file_bound")
         return self.cache[node.uuid]
 
 
@@ -127,8 +138,9 @@ def _validate_native_inputs(plan_node, graph_node, native_node, code, execution_
     _need(all(isinstance(n, orm.SinglefileData) and n.is_stored
               for n in (plan_node, graph_node, native_node)) and code.is_stored,
           "stored_original_inputs_required")
-    raw_plan, raw_graph, raw_native = (budget.file(n) for n in (plan_node, graph_node, native_node))
-    plan = scientific_plan(decode(raw_plan, maximum=MAX_FILE))
+    raw_plan, raw_graph, raw_native = (budget.file(n, role=role) for n, role in
+        ((plan_node, "plan"), (graph_node, "source_graph"), (native_node, "native_execution")))
+    plan = scientific_plan(decode(raw_plan, maximum=MAX_PLAN))
     association._binding_schema(plan, "scientific-plan.schema.json")
     graph = decode(raw_graph, maximum=MAX_FILE)
     association._binding_schema(graph, "model-help.schema.json", "#/$defs/SourceGraph")
@@ -171,18 +183,18 @@ def _original_plan(candidate, executions, budget):
     """An explicit full NodeFile selects stored original bytes, never latest."""
     orm = _orm()
     _need(type(executions) is dict and executions,"native_execution_coverage")
-    raw = budget.file(candidate)
-    plan = scientific_plan(decode(raw,maximum=MAX_FILE))
+    raw = budget.file(candidate, role="plan")
+    plan = scientific_plan(decode(raw,maximum=MAX_PLAN))
     first = plan["executions"][0]["id"]
     _need(first in executions,"native_execution_coverage")
-    declaration = decode(budget.file(executions[first]),maximum=MAX_FILE)
+    declaration = decode(budget.file(executions[first], role="native_execution"),maximum=MAX_FILE)
     reference = declaration["input_plan"]
     association._binding_node_file(reference)
     rows = budget.query(orm.QueryBuilder().append(orm.SinglefileData,
         filters={"uuid":reference["node_uuid"]},project="*"))
     _need(len(rows)==1,"original_plan_node_unavailable")
     original = rows[0]
-    original_raw = budget.file(original)
+    original_raw = budget.file(original, role="plan")
     _file_claim(original,original_raw,reference)
     _need(original_raw==raw,"original_plan_bytes_differ")
     return original
@@ -193,7 +205,7 @@ def _ingress(plan_node, graph, executions, code, max_attempts, *, budget=None):
           "native_requires_inputs_and_one_attempt")
     _need(len(executions) <= 256, "native_execution_coverage")
     budget = _Reads(MAX_METADATA) if budget is None else budget
-    plan = scientific_plan(decode(budget.file(plan_node), maximum=MAX_FILE))
+    plan = scientific_plan(decode(budget.file(plan_node, role="plan"), maximum=MAX_PLAN))
     identifiers = [e["id"] for e in plan["executions"]]
     _need(set(executions) == set(identifiers) and len(identifiers) <= 256, "native_execution_coverage")
     mapped = {}
@@ -243,7 +255,7 @@ def _load_original(calcjob_uuid, budget):
     _need(_input(run, f"native_executions__execution_{index}", budget).uuid == native_node.uuid,
           "plan_native_input_selection")
     script = _related(calc, LinkType.CREATE, "native_submit_script", budget, outgoing=True)
-    raw_script = budget.file(script)
+    raw_script = budget.file(script, role="submit_script")
     launch = dict(request_id=native["request_id"], run_uuid=run.uuid, execution_id=execution.value,
         transport_attempt=attempt.value, code_uuid=code.uuid, release_id=native["code"]["release_id"],
         native_execution_uuid=native_node.uuid, input_plan_uuid=plan_node.uuid, source_graph_uuid=graph_node.uuid,

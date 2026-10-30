@@ -115,12 +115,20 @@ The owner must already have loaded its profile. This port performs no current
 job/workdir selection or freshness read, accesses no NFS/backend and creates no
 profile. It therefore supports offline retained provenance checks. The existing
 launch and execution ports retain their current runtime selection and freshness
-guards. All ports keep the 8 MiB metadata workspace cap, 64 KiB per-original-file
-cap and bounded typed queries; failures never refund their workspace debit.
-Callers must prepay the port allowance from their existing aggregate budget.
-The original standard 113111-byte plan still exceeds the 64 KiB cap
-(`R-ELIGIBILITY-01` remains open). Small metadata fixtures do not qualify that
-plan, and this change adjusts neither the physical plan nor the limits.
+guards. The original plan alone permits up to 1 MiB, matching the existing
+capture plan allowance. Graph, native execution and script originals retain
+64 KiB limits. The fixed plan read and scientific-plan decode callsites select
+that role explicitly; a cached node reused for a stricter role must still satisfy
+its smaller bound. All ports retain the 8 MiB aggregate metadata workspace cap
+and bounded typed queries. The first raw/JSON chunk is charged before file open
+or buffer allocation; subsequent chunks and the EOF request share that same
+nonrefundable ledger. Failures and cancellation never return workspace credit.
+Callers must prepay the port allowance from their existing aggregate budget;
+actual declared sizes determine its read workspace, not a promise that all
+per-role maxima fit together. A plan at the 1 MiB role ceiling can exhaust the
+aggregate before EOF or JSON decoding and must refuse. Source fixtures do not
+qualify installed actor/caller/composition, native import RSS or science. The
+physical plan and original bytes are never shortened to obtain admission.
 
 These library calls require a profile already loaded by their owner. The
 `qcl-negf-native-actor --profile PROFILE {launch|execution} CALCJOB_UUID
