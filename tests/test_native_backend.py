@@ -283,3 +283,32 @@ def test_cleanup_unknown_keeps_primary_timeout_and_original_shared_deadline(tmp_
     assert isinstance(caught.value.__cause__,TimeoutError)
     assert caught.value.__cause__.__notes__==["native cleanup unknown: TimeoutError"]
     assert signals.count(signal.SIGKILL)==1
+
+
+def test_closed_claim_bool_is_not_integer_even_when_python_equality_matches():
+    module=backend();identifier="00000000-0000-4000-8000-000000000003"
+    names=("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
+    controls=[dict(path=name,bytes=0,sha256="a"*64) for name in names]
+    value=reply(identifier,"closed");value.update(receipt_ref=identifier+"/close.json",controls=deepcopy(controls))
+    value["job"].update(node_name="worker",start_time="2026-10-29T00:00:00",worker_machine_id="c"*32,worker_boot_id="00000000-0000-4000-8000-000000000004")
+    value["controls"][0]["bytes"]=False
+    assert value["controls"]==controls  # Python equality is not this wire contract.
+    with pytest.raises(PauseInterruption):module._reply(encode(value),identifier,state="closed",controls=controls,job_id="321")
+
+
+@pytest.mark.parametrize("asynchronous",[False,True])
+def test_q1_context_secondary_close_error_preserves_original(monkeypatch,asynchronous):
+    module=backend();transport=module.NativeLocalTransport(machine="localhost",native_computer_uuid="00000000-0000-4000-8000-000000000001")
+    original=ValueError("original body failure");close=transport.close
+    monkeypatch.setattr(transport,"close",lambda:(_ for _ in ()).throw(OSError("secondary close")))
+    async def exercise():
+        async with transport:raise original
+    try:
+        with pytest.raises(ValueError) as caught:
+            if asynchronous:asyncio.run(exercise())
+            else:
+                with transport:raise original
+        assert caught.value is original and any("close failed" in note for note in original.__notes__)
+    finally:
+        monkeypatch.setattr(transport,"close",close)
+        if transport.is_open:transport.close()

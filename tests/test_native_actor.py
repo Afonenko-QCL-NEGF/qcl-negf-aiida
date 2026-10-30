@@ -222,7 +222,7 @@ def test_native_presubmit_genuine_create_original_script_and_repeat(native_graph
             with script.open(mode="rb") as stream:assert stream.read()==original
             assert "--attempt" not in info.codes_info[0].cmdline_params
             assert info.codes_info[0].cmdline_params[2]=="/srv/qcl-negf/jobs/native/new-domain"
-            assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
+            assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","native-close.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
         with SandboxFolder() as second:
             process.presubmit(second)
             assert process.node.outputs.native_submit_script.uuid==script.uuid
