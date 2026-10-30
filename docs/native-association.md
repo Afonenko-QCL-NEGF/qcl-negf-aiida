@@ -129,3 +129,193 @@ actual-build graph delivery and daemon storage/native admission bridges remain
 required owner followups. Unknown submission outcome needs reconciliation;
 scientific failure never implies automatic retry. This pure function grants
 none of these operations.
+
+## Stored consumer and c1 origin operands
+
+The B consumer in `saved_sources.py` obtains original manifest, checkpoint,
+plan/model and final D/O declarations through public Results readers while the
+public A selected-source context remains open. Each distinct nonabsent
+point/history RowKey gets a context and a creator proof; a repeated identical
+RowKey uses one proof. It preserves original result bytes, all rows, StateRefs,
+FileRefs, binary64 values and native epochs. The public A tuple remains
+`(original_result, selected_sources, None)` and supplies current byte access.
+
+A new producer epoch has the form
+`c1-<CalcJob UUID lowercase hex32>-<native_execution INPUT UUID hex32>-<UInt64 nonce>`.
+The nonce, row attempt, transport attempt and relation are separate domains.
+The consumer uses these tokens to select actual immutable ORM operands, then
+repeats typed Plan/Restart/CalcJob CALL/INPUT joins, original plan/graph/native
+file identities, Code/release/scalar inputs and genuine script CREATE/raw reads.
+The public `read_native_origin_inputs` port returns original native input/script
+bytes; its returned tuple is checked against B's own actual reads. The script's
+original literal eleven Runner arguments must join the actual creator, input
+file names, execution, Code and declared output suffix. This suffix does not
+qualify a jobs root or grant filesystem access.
+
+The same selected CalcJob can create a `retained_source`; it remains eligible
+after the same joins. A different CalcJob, even with `current_point_attempt`,
+requires existing actual `INPUT_CALC parent_binding` hops, genuine parent
+`CREATE native_binding/result/selection`, original bytes and scalar pins. Each
+hop must retain the same selected source/invocation and end at its original
+creator. Missing or cyclic chains remain unavailable with the missing operand.
+This consumer does not add a WorkChain input, retry or recovery frontier. Legacy
+unmapped epochs remain `creator_proof_unavailable`. Restored final evidence
+still requires an original immediate-parent manifest/checkpoint context; the
+current consumer reports `qualified_immediate_parent_context` unavailable.
+
+Retained reads repeat immutable ORM inputs, original result/binding/retrieved
+bytes, scalar selection CREATE/pins and c1/input/script mapping, including an
+existing retained chain. The existing owning `_binding_stored` helper checks
+only the original structural projection. Its stored `verified` words convey no
+renewed authority. The getter calls no A/native backend, NFS or Platform reader
+and manufactures no checkpoint/manifest context. Its response explicitly has
+`native_contexts=not_reverified`, `current_access=not_checked` and
+`scientific_acceptance=not_assessed`.
+
+One attempt-owned nonrefundable ledger covers parser, genuine CREATE pair,
+immutable readback and scalar selection. The current operational allowance is
+320 MiB metadata W and 256 MiB scoped I/O. It prepays reusable Results workspace
+128 MiB once, separate binder/outward validation workspace 96 MiB once and each
+8 MiB detached context slot **before** the public call. ResultReadLimits metadata
+is 8 MiB per method: the unchanged 113111-byte plan's ordinary JSON workspace
+forecast is 2839900 bytes, already above the former 2 MiB limit. These are
+operational admissions, not physical/scientific criteria or total heap/RSS limits.
+Every selected StateRef/kind and every point/history row remains mandatory;
+insufficient aggregate credit HOLDs without filtering or shortening inputs.
+
+The public `describe_native_metadata_context` operation returns the original
+manifest/checkpoint and detached input/final Descriptions only after stability
+and all closes. B passes both required `diagnostics_ref` and `observations_ref`
+keywords explicitly (None for checkpoint). It passes Results workspace128MiB
+and retained8MiB separately. B owns no StateReader/final-reader lifetime and
+reuses workspace only after a successful closed operation. Its context projection
+aliases exclusively owned detached objects; later binder arguments/copies and
+output/readback materialization are paid separately. A failure/cancellation makes
+the same ledger terminal: no refund, next-ref retry, reset or dependent reuse.
+Primary exceptions/cancellation survive secondary close failures, and output
+constructors remain after successful selected-access exit.
+
+The initial e39/b665 qualification counted all three transitive cache domains: twelve
+Results science validators, six fixed AiiDA binder resource/fragment keys and
+five fixed public Contracts outward DTO roots. Controlled source census measures
+binder6/outward5 W55168568 and all23 cached schema graphs W114914288, including
+shared standard metaschemas. The 96 MiB owning reservation comprises own cache
+contents bounded at32MiB before work, five outward bundles at6MiB each, three
+simultaneous fresh factory bundles at8MiB each,8MiB inspection/traversal and2MiB
+wrapper/builder bookkeeping. The fixed sorted36-schema factory's maximum prefix
+plus JSON decode forecast is6951280 bytes before its bounded resource/map headers.
+This accounts explicit metadata structures, not interpreter/allocator memory.
+The earlier256/64 policy and its GREEN source receipts remain partial accounting
+evidence; they do not demonstrate full transitive capacity.
+
+Before relevant factory/consumer work and after closed work, B inspects its own
+actual CPython C-cache layout, unique owning function target and six known keys,
+cached execution/registry aliases and an incremental bounded builtin schema
+forest. Unknown keys/layout or changed identities HOLD. Contracts private caches
+are never imported/accessed in production: their five closed public entry roots
+and pinned immutable packaged factory are the conservative source bound. This
+assumes trusted CPython/stdlib/library/import machinery and immutable packaged
+assets; it is not universal Python/VM/security attestation. Caches are neither
+cleared nor prewarmed by production code; no Contracts API is changed.
+
+Artifact and package-source scopes remain distinct. Each closed Results call
+prepays the enforced artifact16MiB allowance plus the producer's enforced
+identity-source6MiB credit across initialization/stability/close. Original ORM,
+origin-port and selected-access I/O remains separately prepaid and nonrefundable.
+`maximum_io_bytes` and B's256MiB scoped ledger cover these named operations;
+public artifact `delivered_bytes` is not total process/package/filesystem I/O.
+
+Immutable packaged schema/factory/vocabulary reads are **outside** that scoped
+I/O upper bound. Their observed source asset bytes are qualification telemetry,
+not another enforced/public credit or guaranteed whole-filesystem limit. In
+particular the public catalog/depth32/pages16 paths can perform more repeated
+factory reads than simple CP/final fixtures. The former14MiB package allowance
+was not source-proven and is withdrawn; no unproved8MiB factory reservations are
+charged. Package memory remains fully included in128+96/outer320 W accounting
+under the pinned immutable package/source/runtime assumptions. Interpreter
+imports and backend/query physical I/O are also outside the delivered-byte metric.
+
+Original plan reads and original/selected/parent/offline plan projections permit
+up to1MiB; graph, native execution, script and default files retain64KiB. Whole
+original byte/UUID claims and actual typed INPUT/CALL/CREATE chains are checked
+for each role. Before the origin port B reserves2.5MiB metadata and327680 payload
+I/O bytes, exactly `floor(2621440/8)`. Its actual actor ledger prepays8 times every
+requested payload chunk/EOF before delivery; queries/other charges are
+nonnegative and cache hits deliver no bytes. The unchanged113111-byte plan fits
+this narrower allowance; a1MiB role ceiling is not a whole-port fit guarantee.
+Separate original reads, JSON workspace and returned comparisons remain charged.
+
+SOURCE/L checks use genuine isolated ORM nodes/links and source-owned synthetic
+CP/final fixtures around original plan/model bytes. Current, same-child retained,
+existing foreign-parent binding, multiple StateRefs, parser→CREATE/readback/scalar
+and offline joins are separate from native creator qualification. Offline output
+explicitly says native_contexts=not_reverified/current_access=not_checked. A302
+scientific failure can carry complete association outputs; it is not acceptance.
+Missing actual parent/restore proof still HOLDs. Historical32MiB/4MiB failures and
+all failed attempts remain preserved with their source identities. The selected
+Results dependency's normal T0/phase shared-cache profile limitation is a separate
+owning Results/installed gate; no unpublished dependency fix is consumed here.
+
+Actual installed Code/APP/wrapper/profile/caller, original protected dispatch,
+virgin/noReuse/writer-domain, RO/retention lifetime and selected-source birth
+qualification remain mandatory Root native gates. A c1 token, coherent stored
+projection or SOURCE/L fixture does not establish them. Plan-role metadata
+eligibility is separate from the still-open combined parser credit/Results
+bridge and installed composition gates. Scientific acceptance is separate.
+
+
+## Bounded original scalar admission
+
+Original offline and parent `selection` reads use one owning backend/UUID
+helper. It never hydrates an ORM Dict or calls its `get_dict()`. Static
+bound-parameter SQL first obtains at most two CREATE UUID/type rows. A second
+statement repeats unique actual CREATE ownership, computes native UTF-8 JSON
+byte length and returns complete attributes text only when at most4096 bytes.
+Size, ownership and conditional text share that statement's snapshot; the first
+lookup and later graph/files readback have separate snapshots. Stored AiiDA
+operands/layout are qualified immutable source, not privileged SQL/VM attestation.
+
+The current closed scalar maximum is835 ASCII JSON bytes / W8242: canonical
+UUID36/SHA64/Id128/UInt64/Count20 and fixed empty/null/performance fields. The
+4096-byte cap covers this entire valid shape. Before SQL/text/decode the ledger
+prepays2228992W and8192 scoped I/O bytes: Q65536 for fixed queries, bounded rows,
+expected copies and bookkeeping; worst decode2114048W; simultaneous text/raw
+49408W. Oversize originals return only size/NULL and refuse without a free tree
+copy. All prepaid credit remains spent, and failures make the operation terminal.
+Full ordinary dict equality preserves reordered keys and rejects extra root or
+nested fields. Expected pins come from unique genuine CREATE original bounded
+result/binding files and are compared to the stored declarations before use.
+
+Qualified matrix is CPython3.14.7/AiiDA2.9.2/SQLAlchemy2.1.1/main_0002:
+SqliteDosStorage with sqlite/pysqlite/qmark, SQLite3.53.4 and UTF-8;
+PsqlDosBackend with postgresql/psycopg/pyformat, psycopg3.3.6, PostgreSQL17.11 and
+server/client UTF8. Unknown adapters/schema/encoding/version HOLD. Only builtin
+Dict source is admitted. The helper receives an already qualified backend and
+canonical creator UUID, with no creator-object refresh inside the SQL boundary.
+It uses `no_autoflush`, borrows the session/connection, and owns only its cursors;
+it adds no commit/rollback/isolation policy. Driver autobegin/read locks may occur.
+Primary error/cancellation survives secondary cursor-close failure; successful
+close failure remains visible.
+
+This is client metadata/transfer/decode W. Shared SQLAlchemy/DBAPI heap, native
+DB engine allocations, total process RSS and physical DB I/O are outside that
+explicit allowance. SQLite's native engine is in the same process and may read
+or allocate the whole large JSON internally even when no text is delivered.
+This is not a universal process/database read-only guarantee. The selected
+statements are SELECT/PRAGMA/SELECT-only CTE; fixture creation and Root database
+qualification are separate operations. Package reads retain the explicit scoped
+I/O limitation described above. Original scalar admission does not change
+scientific values, full provenance joins, public APIs or native eligibility.
+
+Original e39/science12 qualification is retained separately. Joined source tests
+select frozen published Results37c3 and Contracts1c641, including all15 legitimate
+science/technical cache kinds; live Results writer worktrees are not dependencies.
+Publication/installed/native producer/scientific acceptance remain separate gates.
+
+Current joined37c3/1c641 census after finite cache prewarm measures binder6 W31832886,
+outward5 W26594348, their union W58025576 and all26 cached validators W136603646.
+These are census observations before later public reader work, not a runtime peak.
+The owning32MiB cache, five6MiB outward and three8MiB fresh allowances still cover
+the pinned current domains. Current sorted36-schema raw bytes total531983;
+maximum prior-prefix plus decode forecast is7982538W, below8MiB.
+Prior e39 corpus/census numbers above remain historical, not current-source totals.
