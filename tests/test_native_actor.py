@@ -570,3 +570,120 @@ def test_native_presubmit_conflicting_created_script_is_never_replaced(native_gr
         with original.open(mode="rb") as stream:assert stream.read()==b"#!/bin/bash\n# conflicting genuine CREATE\n"
         assert process.node.get_job_id() is None
     finally:process.close()
+
+
+def metadata_graph(f, raw_plan, *, raw_graph=None, script_raw=b'#!/bin/bash\n# original metadata script\n'):
+    """Build fresh actual typed originals; never rebind stored fixture INPUTs."""
+    from qcl_negf_contracts.messages import decode
+    raw_graph=f['raw_graph'] if raw_graph is None else raw_graph
+    plan,graph=blob(raw_plan).store(),blob(raw_graph).store()
+    native=blob(b'{}');execution=deepcopy(f['execution'])
+    execution['execution_id']=decode(raw_plan,maximum=1048576)['executions'][0]['id']
+    execution['input_plan']=digest(plan,raw_plan);execution['source_graph']=digest(graph,raw_graph)
+    execution['storage']['execution_binding_uuid']=native.uuid
+    raw_native=encode(execution);native.set_file(io.BytesIO(raw_native),filename='native-execution.json');native.store()
+    release=orm.Str(execution['code']['release_id']).store()
+    run=orm.WorkChainNode(process_type=association._PLAN_PROCESS)
+    for key,node in (('plan',plan),('source_graph',graph),('code',f['code']),('native_executions__execution_0',native),('release_id',release)):
+        run.base.links.add_incoming(node,LinkType.INPUT_WORK,key)
+    run.store()
+    restart=orm.WorkChainNode(process_type=association._RESTART_PROCESS)
+    restart.base.links.add_incoming(run,LinkType.CALL_WORK,'metadata')
+    inputs=dict(plan=plan,source_graph=graph,code=f['code'],native_execution=native,
+        attempt=orm.Int(7).store(),execution_id=orm.Str(execution['execution_id']).store(),release_id=release)
+    for key,node in inputs.items():restart.base.links.add_incoming(node,LinkType.INPUT_WORK,key)
+    restart.store()
+    calc=orm.CalcJobNode(computer=f['calc'].computer,process_type=association._CALC_PROCESS)
+    calc.base.links.add_incoming(restart,LinkType.CALL_CALC,'metadata')
+    for key,node in inputs.items():calc.base.links.add_incoming(node,LinkType.INPUT_CALC,key)
+    calc.set_option('submit_script_filename','_aiidasubmit.sh')
+    for key,value in scheduler_options({}).items():calc.set_option(key,value)
+    calc.store();calc.set_remote_workdir('/srv/qcl-negf/jobs/upload/metadata')
+    script=blob(script_raw,'_aiidasubmit.sh');script.base.links.add_incoming(calc,LinkType.CREATE,'native_submit_script');script.store()
+    return dict(calc=calc,run=run,restart=restart,plan=plan,graph=graph,native=native,code=f['code'],script=script,
+        execution=execution,raw_native=raw_native,raw_plan=raw_plan,raw_graph=raw_graph,raw_script=script_raw)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('role,size,reason',[
+    ('plan',113111,None),('plan',1048575,'metadata_budget'),('plan',1048576,'metadata_budget'),('plan',1048577,'metadata_budget'),
+    *[(role,size,None if size<=65536 else 'input_file_bound') for role in
+      ('source_graph','native_execution','submit_script') for size in (65535,65536,65537)]])
+def test_original_role_ceiling_and_aggregate_are_distinct(aiida_profile_clean,role,size,reason):
+    module=actor();raw=b'{}'+b' '*(size-2);node=blob(raw).store();budget=module._Reads(8388608)
+    if reason:
+        with pytest.raises(module.NativeActorUnavailable,match=reason):budget.file(node,role=role)
+        assert node.uuid not in budget.cache
+        if reason=='metadata_budget':assert budget.remaining<0
+    else:
+        assert budget.file(node,role=role)==raw
+        assert budget.remaining>=0
+    with node.open(mode='rb') as stream:assert stream.read()==raw
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('role',['metadata','source_graph','native_execution','submit_script'])
+def test_cached_plan_cannot_bypass_stricter_original_role(aiida_profile_clean,monkeypatch,role):
+    module=actor();raw=b'{}'+b' '*113109;node=blob(raw).store();budget=module._Reads(8388608)
+    assert budget.file(node,role='plan')==raw
+    after=budget.remaining
+    def forbidden(*args,**kw):raise AssertionError('cached immutable original reopened')
+    monkeypatch.setattr(orm.SinglefileData,'open',forbidden)
+    with pytest.raises(module.NativeActorUnavailable,match='input_file_bound'):budget.file(node,role=role)
+    assert budget.file(node,role='plan')==raw and budget.remaining==after
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('fault',['budget','open_failure','cancellation'])
+def test_original_read_workspace_prepaid_before_open_and_never_refunded(aiida_profile_clean,monkeypatch,fault):
+    module=actor();node=blob(b'{}'+b' '*10000).store();opened=[];real_open=orm.SinglefileData.open
+    primary=OSError('original open failure')
+    def opening(self,*args,**kw):
+        opened.append(budget.remaining)
+        if fault=='open_failure':raise primary
+        from contextlib import contextmanager
+        @contextmanager
+        def tracked():
+            with real_open(self,*args,**kw) as stream:
+                streams.append(stream)
+                yield stream
+        return tracked()
+    class Cancelled(BaseException):pass
+    count=[0];streams=[]
+    def before():
+        count[0]+=1
+        if fault=='cancellation' and count[0]==2:raise Cancelled()
+    budget=module._Reads(32767 if fault=='budget' else 8388608,before=before)
+    monkeypatch.setattr(orm.SinglefileData,'open',opening)
+    if fault=='budget':
+        with pytest.raises(module.NativeActorUnavailable,match='metadata_budget'):budget.file(node,role='plan')
+        assert opened==[] and budget.remaining==-1
+    elif fault=='open_failure':
+        with pytest.raises(OSError) as caught:budget.file(node,role='plan')
+        assert caught.value is primary and opened==[8355840] and budget.remaining==8355840
+    else:
+        with pytest.raises(Cancelled):budget.file(node,role='plan')
+        assert opened==[8355840] and budget.remaining==8355840
+        assert streams and all(stream.closed for stream in streams)
+    assert node.uuid not in budget.cache
+
+
+@pytest.mark.integration
+def test_large_plan_ingress_explicit_original_and_public_ports_keep_full_bytes(native_graph):
+    module=actor();raw=native_graph['raw_plan']+b' '*(113111-len(native_graph['raw_plan']))
+    f=metadata_graph(native_graph,raw);execution=f['execution']['execution_id']
+    budget=module._Reads(8388608)
+    assert module._original_plan(f['plan'],{execution:f['native']},budget).uuid==f['plan'].uuid
+    assert module._ingress(f['plan'],f['graph'],{execution:f['native']},f['code'],1,budget=budget)=={'execution_0':f['native']}
+    launch=module.load_native_launch(f['calc'].uuid,maximum_metadata_bytes=8388608)
+    assert launch['files']['plan']==dict(bytes=113111,sha256=hashlib.sha256(raw).hexdigest())
+    assert module.read_native_execution(f['calc'].uuid,maximum_metadata_bytes=8388608)==f['raw_native']
+    assert module.read_native_origin_inputs(f['calc'].uuid,source_epoch=origin_epoch(f),maximum_metadata_bytes=8388608)==(f['raw_native'],f['raw_script'])
+    with f['plan'].open(mode='rb') as stream:assert stream.read()==raw
+
+
+def test_unknown_input_role_refuses_before_orm(monkeypatch):
+    module=actor()
+    monkeypatch.setattr(module,"_orm",lambda:pytest.fail("unknown role opened ORM"))
+    with pytest.raises(module.NativeActorUnavailable,match="input_file_role"):
+        module._Reads(8388608).file(None,role="unknown")
