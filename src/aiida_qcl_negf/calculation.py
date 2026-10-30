@@ -151,7 +151,7 @@ class QCLExecutionCalculation(CalcJob):
             + " || exit 78\nunset QCL_NEGF_CAPTURE_SPEC")
         info.codes_info = [code]
         # Stock presubmit adds its two scheduler logs. Q1 still gates all gets.
-        info.retrieve_list = ["series_result.json", "native-selection.json"]
+        info.retrieve_list = ["series_result.json", "native-selection.json", "native-close.json"]
         return info
 
     def _prepare_for_submission(self, folder):

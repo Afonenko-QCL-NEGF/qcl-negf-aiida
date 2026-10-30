@@ -22,7 +22,7 @@ MAX_FILE = 65536
 MAX_METADATA = 8 * 1024 * 1024
 SCHEDULER = "qcl_negf.native_slurm"
 TRANSPORT = "qcl_negf.native_local"
-CONTROL_FILES = ("series_result.json", "native-selection.json", "_scheduler-stdout.txt", "_scheduler-stderr.txt")
+CONTROL_FILES = ("series_result.json", "native-selection.json", "native-close.json", "_scheduler-stdout.txt", "_scheduler-stderr.txt")
 
 
 class NativeActorUnavailable(ValueError):
@@ -288,6 +288,42 @@ def native_calcjob_uuid(*, computer_uuid: str, remote_workdir: str | None = None
         raise
     except Exception as error:
         raise NativeActorUnavailable("actor_lookup_unavailable") from error
+
+
+def _retrieved_packet(calcjob_uuid, expected, budget):
+    """Actual CREATE/repository read; expected bytes never grant source access."""
+    orm = _orm()
+    from aiida.common.links import LinkType
+    _uuid(calcjob_uuid)
+    rows = budget.query(orm.QueryBuilder().append(orm.CalcJobNode,
+        filters={"uuid": calcjob_uuid, "process_type": association._CALC_PROCESS}, project="*"))
+    _need(len(rows) == 1 and rows[0].is_stored, "calcjob_unavailable")
+    calc = rows[0]
+    node = _related(calc, LinkType.CREATE, calc.link_label_retrieved, budget, outgoing=True)
+    _need(isinstance(node, orm.FolderData) and node.is_stored, "original_retrieved_required")
+    repository = node.base.repository
+    budget.charge(8192)
+    names = []
+    for entry in repository.list_objects():
+        budget.charge(1024)
+        _need(len(names) < 5 and entry.is_file(), "retrieved_packet_membership")
+        names.append(entry.name)
+    _need(set(names) == set(CONTROL_FILES) == set(expected), "retrieved_packet_membership")
+    result = {}
+    for name in CONTROL_FILES:
+        size = len(expected[name]); raw = bytearray()
+        with repository.open(name, mode="rb") as stream:
+            while len(raw) <= size:
+                count = min(4096, size + 1 - len(raw))
+                budget.charge(8 * count)
+                chunk = stream.read(count)
+                if not chunk:
+                    break
+                raw.extend(chunk)
+        budget.charge(len(raw))
+        _need(bytes(raw) == expected[name], "retrieved_packet_changed")
+        result[name] = bytes(raw)
+    return result
 
 
 def _lookup(computer_uuid, remote_workdir, job_id, budget):

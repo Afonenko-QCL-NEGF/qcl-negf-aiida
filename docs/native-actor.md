@@ -36,11 +36,11 @@ before claim; there is no legacy `result` directory fallback. It constructs
 output argv from that selector and the original relative execution root. This
 environment value is untrusted: Platform P2 must independently compare actual
 argv with its protected `policy.jobs_root` and original relative root before
-claim. That Platform check and protected daemon wiring remain unavailable.
-The native command uses original plan/source-graph files and omits legacy
-`--attempt`. Its `--source-graph` producer port is currently an unpublished
-Runner overlay, so this source branch must not activate against an older
-installed Runner.
+claim. Platform owns that check and protected daemon wiring; their current native
+installation and qualification remain separate. The native command uses original
+plan/source-graph files and omits legacy `--attempt`. Its published Runner
+`--source-graph` producer port must match the selected component composition;
+this source branch must not activate against an older installed Runner.
 
 Service admission resolves the original plan through the existing full
 `native_execution.input_plan` NodeFile UUID. It requires the exact stored
@@ -109,15 +109,13 @@ window for each job. Package-internal read helpers reuse that same ledger;
 this is not a new public budget/authority framework. Import/ORM memory and
 deployed DB latency still require native measurement.
 
-Currently **get, getfile and gettree always HOLD** because the owning public
-Q1 control-export/close port is absent. `ignore_nonexisting=True`, a supplied
-dictionary, a stored result, or scheduler DONE cannot bypass this gate. A
-future separately reviewed integration must qualify the entire declared
-small control set before its first copy, preserve original selected input
-FileRefs, and verify bounded same-FD bytes and local readback. Scientific
-HDF/history payloads stay in their single NFS copy. Checkpoint plan/model
-selection remains outside the closed native-source schema, and A4 checkpoint
-contexts keep `.plan` and `.model` null.
+Only the closed five-file path below can permit get/getfile. A supplied
+certificate dictionary, stored result or scheduler DONE cannot replace its
+actual actor/owner/current-source gates. Scientific HDF/history payloads stay
+in their single NFS copy. Checkpoint plan/model selection remains outside the
+closed native-source schema; the published public Results checkpoint-input
+reader verifies these separate full refs. A4 checkpoint contexts still keep
+`.plan` and `.model` null.
 
 Cancellation likewise remains HOLD until Platform provides a fresh
 same-generation admission. Its present retained status/job ID is insufficient
@@ -126,6 +124,90 @@ to authorize scancel. No scheduler/retry owner is added by either guard.
 Platform's fixed actor-loader/caller ancestry/profile/namespace bridge,
 canonical worker output mapping, source-owned Q1 publication and CP verifier,
 current-generation cancellation, parser CREATE/readback integration and
-native installation are separate gates. Existing P1 currently holds on the
-missing actor binding. Source tests and default HOLD behavior do not qualify
-these missing production paths or scientific/optical acceptance.
+native installation are separate gates. The matched Platform actor/close package and current native qualification
+remain required. Source tests and default HOLD behavior do not qualify an
+installed deployment or scientific/optical acceptance.
+
+## Closed five-file transfer and selected native access
+
+`native_local.get/getfile` accept only the five literal virtual leaves
+`series_result.json`, `native-selection.json`, `native-close.json`,
+`_scheduler-stdout.txt` and `_scheduler-stderr.txt` at the actual actor workdir.
+The first two map to the canonical result root selected by original native
+INPUT and qualified Platform policy. Logs remain in the upload workdir; no
+controls are copied back there. `gettree`, patterns and missing mandatory leaves
+remain HOLD, including `ignore_nonexisting=True`. The native CalcInfo asks for
+three controls; stock AiiDA presubmit adds its two logs.
+
+A transfer first reads bounded provisional claims, then calls the existing fixed
+Platform client `close`. The exact closed Reply7 has four ordered claims
+(result, selection, stdout, stderr), its original Job11 and `UUID/close.json`.
+It excludes the close projection. Only one framing LF from the fixed client's
+stdout is removed; the remaining original canonical reply bytes become
+`native-close.json`, without reencoding or a self hash. The whole packet is
+reread after close before any leaf is delivered. Same-byte destination retries
+reconcile; conflicts and aliases refuse even with overwrite requested. Partial
+files and a stored FolderData without CREATE do not establish whole success.
+
+The public current-access port is:
+
+```python
+open_native_selected_sources(calcjob_uuid: str, *,
+    maximum_metadata_bytes: int, maximum_io_bytes: int)
+```
+
+It requires an already loaded profile and returns a context manager yielding
+`(original_result_raw, sources, None)`. Each source is
+`(actual_readonly_Path, original_NativePointSource_closed8, plan_FileRef,
+model_FileRef)`. Paths remain private and valid only within this context. The
+provider authenticates actual actor originals and genuine CalcJob CREATE
+`retrieved`, with all five repository leaves equal to the qualified packet.
+Consumers must close their public Results readers and exit this context
+successfully before publishing outputs. Offline retained getters do not invoke
+this current-access path.
+
+The selection is the existing Runner version1 `selected_inputs` array. One row
+per distinct full `(artifact_root, StateRef)` follows points then attempt history
+in first-occurrence order. A later final occurrence supplies the original final
+representative; sequence alone does not select a state. The returned closed8
+is an original result declaration, unchanged. Plan/model refs remain separate.
+`StateReader`, `describe_checkpoint_inputs`, `FinalDiagnosticsReader` and
+`FinalObservationsReader` independently check scientific files through their
+public Results APIs. This provider supplies access and exact refs; it issues
+no numerical or scientific verdict.
+
+Publisher closure does not identify the original source creator. Neither
+`current_point_attempt`/`retained_source` nor native and transport counters can
+supply that proof. B must preserve complete per-row coverage and obtain actual
+original INPUT/CALL/CREATE/raw result+binding and parent_binding provenance for
+retained foreign sources. Missing original creator/closed domain or crossroot
+access remains unavailable; current publication cannot relabel the creator.
+
+One existing nonrefundable adapter ledger covers the five get calls until
+transport close, including commands, bytes, queries, copies and readback.
+The context manager has an explicit finite ledger. Caller metadata can only
+tighten the existing 8 MiB cap; stream IO has its own additional caller cap.
+Public actor call allowances are prepaid in full, including exit readback.
+Retries do not reset a session, and failures cannot return credit. Result
+32 MiB, selection 256 KiB and individual close/log 64 KiB ceilings are outer
+format bounds; aggregate admission can refuse much smaller packets. B must
+prepay Q1 and each public Results operation from its own outer allowance;
+per-operation Results counters are not a lifetime budget. Platform keeps its
+separate original privileged operation, with no serialized A credit.
+
+Directory FD walks reject symlinks and aliases; selected roots retain owner,
+mode and inode identity, and files require regular single-link owner bytes and
+full stat readback. Ancestor inode/owner/mode must remain stable; unrelated
+sibling directory lifecycle may change ancestor nlink/timestamps. The actual
+process must see the selected NFS prefix RO with stable mount namespace,
+credentials and boot identity before and after. Primary exceptions and
+cancellation survive secondary close failures.
+
+These source checks cannot grant a lease or prove absence of future foreign
+writes. Root must qualify the actual finite native writer/retention/storage
+domain, managed no-overlap/no-reuse, current causal client/profile/service
+namespaces and real operation cost. A locator or saved close file supplies no
+current authority. Hard NFS latency, ORM/import/RSS and native lifetime remain
+native qualification gates; stationary/configured activation fences remain.
+Optional telemetry is honestly `None`; capture ingress/current-delta coverage
+belongs to the separately granted performance increment and adds no sixth leaf.
