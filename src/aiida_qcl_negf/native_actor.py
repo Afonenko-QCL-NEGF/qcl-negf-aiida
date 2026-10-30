@@ -203,10 +203,10 @@ def _ingress(plan_node, graph, executions, code, max_attempts, *, budget=None):
     return mapped
 
 
-def _load(calcjob_uuid, maximum_metadata_bytes, *, budget=None):
+def _load_original(calcjob_uuid, budget):
+    """Shared actual INPUT/CALL/CREATE reads, without runtime selectors."""
     orm = _orm()
     from aiida.common.links import LinkType
-    budget = _Reads(maximum_metadata_bytes) if budget is None else budget
     _uuid(calcjob_uuid)
     rows = budget.query(orm.QueryBuilder().append(orm.CalcJobNode,
         filters={"uuid": calcjob_uuid, "process_type": association._CALC_PROCESS}, project="*"))
@@ -215,6 +215,7 @@ def _load(calcjob_uuid, maximum_metadata_bytes, *, budget=None):
     _need(calc.is_stored, "stored_calcjob_required")
     parent = _related(calc, LinkType.CALL_CALC, None, budget)
     if parent.process_type == association._RESTART_PROCESS:
+        _need(isinstance(parent, orm.WorkChainNode), "restart_call_owner")
         run = _related(parent, LinkType.CALL_WORK, None, budget)
         processes = (run, parent, calc)
     else:
@@ -233,7 +234,6 @@ def _load(calcjob_uuid, maximum_metadata_bytes, *, budget=None):
             for label, original in (("native_execution",native_node),("attempt",attempt),("execution_id",execution)):
                 _need(_input(process, label, budget).uuid == original.uuid, "call_scalar_identity")
     native, plan, raws = _validate_native_inputs(plan_node, graph_node, native_node, code, execution.value, budget)
-    _reviewed_options(code,calc.get_options())
     release = _input(calc,"release_id",budget)
     _need(type(release) is orm.Str and release.value==native["code"]["release_id"],"release_input_binding")
     for process in processes:
@@ -244,18 +244,27 @@ def _load(calcjob_uuid, maximum_metadata_bytes, *, budget=None):
           "plan_native_input_selection")
     script = _related(calc, LinkType.CREATE, "native_submit_script", budget, outgoing=True)
     raw_script = budget.file(script)
-    _need(calc.get_option("submit_script_filename") == "_aiidasubmit.sh", "submit_filename")
-    workdir, job_id = _path(calc.get_remote_workdir()), calc.get_job_id()
     launch = dict(request_id=native["request_id"], run_uuid=run.uuid, execution_id=execution.value,
         transport_attempt=attempt.value, code_uuid=code.uuid, release_id=native["code"]["release_id"],
         native_execution_uuid=native_node.uuid, input_plan_uuid=plan_node.uuid, source_graph_uuid=graph_node.uuid,
-        relative_execution_root=native["storage"]["relative_execution_root"], remote_workdir=workdir,
+        relative_execution_root=native["storage"]["relative_execution_root"],
         files={name:dict(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest()) for name,raw in
                zip(("plan","source_graph","native_execution","submit_script"),(*raws,raw_script))})
+    return calc, code, launch, raws[2], raw_script
+
+
+def _load(calcjob_uuid, maximum_metadata_bytes, *, budget=None):
+    orm = _orm()
+    budget = _Reads(maximum_metadata_bytes) if budget is None else budget
+    calc, code, launch, raw_native, _ = _load_original(calcjob_uuid, budget)
+    _reviewed_options(code,calc.get_options())
+    _need(calc.get_option("submit_script_filename") == "_aiidasubmit.sh", "submit_filename")
+    workdir, job_id = _path(calc.get_remote_workdir()), calc.get_job_id()
+    launch["remote_workdir"] = workdir
     fresh = orm.load_node(calc.uuid)
     _need(fresh.get_remote_workdir() == workdir and fresh.get_job_id() == job_id, "runtime_selection_changed")
     budget.charge(0)
-    return launch, raws[2]
+    return launch, raw_native
 
 
 def load_native_launch(calcjob_uuid: str, *, maximum_metadata_bytes: int) -> dict:
@@ -276,6 +285,32 @@ def read_native_execution(calcjob_uuid: str, *, maximum_metadata_bytes: int) -> 
         raise
     except Exception as error:
         raise NativeActorUnavailable("actor_input_unavailable") from error
+
+
+def read_native_origin_inputs(calcjob_uuid: str, *, source_epoch: str,
+                              maximum_metadata_bytes: int) -> tuple[bytes, bytes]:
+    """Read original native INPUT and script CREATE; selectors grant no authority.
+
+    An already loaded profile is required. No current workdir, job, backend or
+    access observation is read, so retained offline callers can recheck these
+    immutable operands without claiming native freshness or writer qualification.
+    """
+    try:
+        budget = _Reads(maximum_metadata_bytes)
+        _uuid(calcjob_uuid)
+        _need(type(source_epoch) is str and len(source_epoch) <= 89, "native_origin_epoch")
+        match = re.fullmatch(r"c1-([0-9a-f]{32})-([0-9a-f]{32})-(0|[1-9][0-9]{0,19})", source_epoch)
+        _need(match is not None and int(match[3]) <= 18446744073709551615, "native_origin_epoch")
+        _need(match[1] == calcjob_uuid.replace("-", ""), "native_origin_calcjob")
+        calc, _, launch, raw_native, raw_script = _load_original(calcjob_uuid, budget)
+        _need(match[1] == calc.uuid.replace("-", "") and
+              match[2] == launch["native_execution_uuid"].replace("-", ""), "native_origin_inputs")
+        budget.charge(0)
+        return raw_native, raw_script
+    except NativeActorUnavailable:
+        raise
+    except Exception as error:
+        raise NativeActorUnavailable("actor_origin_unavailable") from error
 
 
 def native_calcjob_uuid(*, computer_uuid: str, remote_workdir: str | None = None,

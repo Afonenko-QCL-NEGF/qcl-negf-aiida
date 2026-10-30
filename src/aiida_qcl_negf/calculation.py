@@ -180,7 +180,9 @@ class QCLExecutionCalculation(CalcJob):
         code = CodeInfo()
         code.code_uuid = self.inputs.code.uuid
         code.cmdline_params = ["run-plan", "plan.json", output, "--execution-id",
-                               self.inputs.execution_id.value, "--source-graph", "source-graph.json"]
+                               self.inputs.execution_id.value, "--source-graph", "source-graph.json",
+                               "--native-execution", "native-execution.json",
+                               "--native-calcjob-uuid", self.node.uuid]
         # Transport attempt is not a native point counter; no --attempt alias.
         if "scratch_root" in self.inputs:
             code.cmdline_params.extend(["--scratch-root", validate_scratch_root(self.inputs.scratch_root.value)])

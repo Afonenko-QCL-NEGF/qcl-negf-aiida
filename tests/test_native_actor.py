@@ -6,6 +6,7 @@ import importlib.util
 import inspect
 import io
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -153,6 +154,143 @@ def test_active_unsealed_real_input_call_create_original_bytes(native_graph):
     assert set(launch["files"])=={"plan","source_graph","native_execution","submit_script"}
 
 
+def origin_epoch(fixture, nonce="0"):
+    return "c1-"+fixture["calc"].uuid.replace("-","")+"-"+fixture["native"].uuid.replace("-","")+"-"+nonce
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("nonce",["0","18446744073709551615"])
+def test_origin_port_reads_exact_originals_without_runtime_selection(native_graph,monkeypatch,nonce):
+    module=actor();f=native_graph
+    f["calc"].base.attributes.delete("remote_workdir")
+    def forbidden(*args,**kwargs):
+        raise AssertionError("offline original read touched mutable runtime selection")
+    monkeypatch.setattr(orm.CalcJobNode,"get_remote_workdir",forbidden)
+    monkeypatch.setattr(orm.CalcJobNode,"get_job_id",forbidden)
+    monkeypatch.setattr(orm,"load_node",forbidden)
+    raw_native,raw_script=module.read_native_origin_inputs(f["calc"].uuid,
+        source_epoch=origin_epoch(f,nonce),maximum_metadata_bytes=8*1024*1024)
+    assert raw_native==f["raw_native"]
+    assert raw_script==b"#!/bin/bash\n# synthetic original script\n"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault",["foreign_calc","foreign_input"])
+def test_origin_port_requires_actual_calcjob_and_original_input_uuid(native_graph,fault):
+    module=actor();f=native_graph;epoch=origin_epoch(f)
+    if fault=="foreign_calc":epoch=epoch.replace(f["calc"].uuid.replace("-",""),"a"*32)
+    else:epoch=epoch.replace(f["native"].uuid.replace("-",""),"b"*32)
+    with pytest.raises(module.NativeActorUnavailable):
+        module.read_native_origin_inputs(f["calc"].uuid,source_epoch=epoch,
+            maximum_metadata_bytes=8*1024*1024)
+
+
+@pytest.mark.parametrize("epoch",[
+    "epoch-1","c1-"+"a"*32+"-"+"b"*32+"-00",
+    "c1-"+"A"*32+"-"+"b"*32+"-1",
+    "c1-"+"a"*32+"-"+"B"*32+"-1",
+    "c1-"+"a"*32+"-"+"b"*32+"-18446744073709551616",
+    "c1-"+"a"*32+"-"+"b"*32+"-1\n",
+    "c1-"+"a"*32+"-"+"b"*32+"--1",None,1])
+def test_origin_port_rejects_noncanonical_epoch_before_orm(monkeypatch,epoch):
+    module=actor()
+    monkeypatch.setattr(module,"_orm",lambda:pytest.fail("malformed c1 opened ORM"))
+    with pytest.raises(module.NativeActorUnavailable):
+        module.read_native_origin_inputs("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            source_epoch=epoch,maximum_metadata_bytes=8*1024*1024)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault",["missing_script","raw_repo_only","input_script","RETURN_script","calcfunction_script",
+    "missing_call","foreign_call","wrong_plan_input","nonfile_script","oversized_script","small_budget"])
+def test_origin_port_requires_original_typed_graph_and_bounded_files(native_graph,fault):
+    module=actor();f=native_graph
+    calc=orm.CalcJobNode(computer=f["calc"].computer,process_type=association._CALC_PROCESS)
+    if fault!="missing_call":
+        parent=f["restart"]
+        if fault=="foreign_call":parent=orm.WorkChainNode(process_type="foreign.workchain").store()
+        calc.base.links.add_incoming(parent,LinkType.CALL_CALC,"other")
+    for link in f["calc"].base.links.get_incoming(link_type=LinkType.INPUT_CALC).all():
+        node=blob(f["raw_plan"]).store() if fault=="wrong_plan_input" and link.link_label=="plan" else link.node
+        calc.base.links.add_incoming(node,LinkType.INPUT_CALC,link.link_label)
+    if fault=="input_script":calc.base.links.add_incoming(f["script"],LinkType.INPUT_CALC,"native_submit_script")
+    if fault=="raw_repo_only":
+        calc.base.repository.put_object_from_filelike(io.BytesIO(b"#!/bin/bash\noriginal bytes\n"),"_aiidasubmit.sh")
+    calc.store()
+    if fault not in ("missing_script","raw_repo_only","input_script"):
+        script=orm.Str("not a file") if fault=="nonfile_script" else blob(
+            b"x"*65537 if fault=="oversized_script" else b"#!/bin/bash\noriginal bytes\n")
+        creator=calc
+        kind=LinkType.CREATE
+        if fault=="calcfunction_script":creator=orm.CalcFunctionNode(process_type="foreign.function").store()
+        if fault=="RETURN_script":
+            creator=orm.WorkChainNode(process_type="foreign.workchain").store();kind=LinkType.RETURN
+            script.store()
+        script.base.links.add_incoming(creator,kind,"native_submit_script")
+        if not script.is_stored:script.store()
+    with pytest.raises(module.NativeActorUnavailable):
+        module.read_native_origin_inputs(calc.uuid,
+            source_epoch="c1-"+calc.uuid.replace("-","")+"-"+f["native"].uuid.replace("-","")+"-0",
+            maximum_metadata_bytes=1 if fault=="small_budget" else 8*1024*1024)
+
+
+@pytest.mark.integration
+def test_origin_port_calcfunction_cannot_impersonate_calcjob(native_graph):
+    module=actor();f=native_graph
+    function=orm.CalcFunctionNode(process_type=association._CALC_PROCESS).store()
+    epoch="c1-"+function.uuid.replace("-","")+"-"+f["native"].uuid.replace("-","")+"-0"
+    with pytest.raises(module.NativeActorUnavailable,match="calcjob_unavailable"):
+        module.read_native_origin_inputs(function.uuid,source_epoch=epoch,maximum_metadata_bytes=8*1024*1024)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("parent_kind",["direct_plan","genuine_restart","workfunction_restart"])
+def test_native_original_chain_requires_actual_workchain_ancestor(native_graph,parent_kind):
+    module=actor();f=native_graph
+    parent=f["run"] if parent_kind=="direct_plan" else f["restart"]
+    if parent_kind=="workfunction_restart":
+        parent=orm.WorkFunctionNode(process_type=association._RESTART_PROCESS)
+        parent.base.links.add_incoming(f["run"],LinkType.CALL_WORK,"wrong_restart_class")
+        for link in f["restart"].base.links.get_incoming(link_type=LinkType.INPUT_WORK).all():
+            parent.base.links.add_incoming(link.node,LinkType.INPUT_WORK,link.link_label)
+        parent.store()
+        assert type(parent) is orm.WorkFunctionNode
+    calc=orm.CalcJobNode(computer=f["calc"].computer,process_type=association._CALC_PROCESS)
+    calc.base.links.add_incoming(parent,LinkType.CALL_CALC,"typed_chain")
+    for link in f["calc"].base.links.get_incoming(link_type=LinkType.INPUT_CALC).all():
+        calc.base.links.add_incoming(link.node,LinkType.INPUT_CALC,link.link_label)
+    calc.set_option("submit_script_filename","_aiidasubmit.sh")
+    calc.store();calc.set_remote_workdir("/srv/qcl-negf/jobs/typed-chain")
+    script=blob(b"#!/bin/bash\n# original typed-chain script\n","_aiidasubmit.sh")
+    script.base.links.add_incoming(calc,LinkType.CREATE,"native_submit_script");script.store()
+    epoch="c1-"+calc.uuid.replace("-","")+"-"+f["native"].uuid.replace("-","")+"-0"
+    for name in ("load_native_launch","read_native_execution","read_native_origin_inputs"):
+        kwargs={"maximum_metadata_bytes":8*1024*1024}
+        if name=="read_native_origin_inputs":kwargs["source_epoch"]=epoch
+        if parent_kind=="workfunction_restart":
+            with pytest.raises(module.NativeActorUnavailable):getattr(module,name)(calc.uuid,**kwargs)
+        else:
+            actual=getattr(module,name)(calc.uuid,**kwargs)
+            if name=="load_native_launch":assert actual["run_uuid"]==f["run"].uuid
+            elif name=="read_native_execution":assert actual==f["raw_native"]
+            else:assert actual==(f["raw_native"],b"#!/bin/bash\n# original typed-chain script\n")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("port",["load_native_launch","read_native_execution"])
+@pytest.mark.parametrize("changed",["workdir","job_id"])
+def test_existing_runtime_ports_reject_changed_selection(native_graph,monkeypatch,port,changed):
+    module=actor();f=native_graph;load=orm.load_node
+    def changed_selection(uuid):
+        fresh=load(uuid)
+        if changed=="workdir":fresh.set_remote_workdir("/srv/qcl-negf/jobs/changed")
+        else:fresh.set_job_id("123")
+        return fresh
+    monkeypatch.setattr(orm,"load_node",changed_selection)
+    with pytest.raises(module.NativeActorUnavailable,match="runtime_selection_changed"):
+        getattr(module,port)(f["calc"].uuid,maximum_metadata_bytes=8*1024*1024)
+
+
 @pytest.mark.integration
 def test_exact_workdir_or_job_query_and_ambiguity(native_graph):
     module=actor();calc=native_graph["calc"];computer=calc.computer.uuid
@@ -222,6 +360,13 @@ def test_native_presubmit_genuine_create_original_script_and_repeat(native_graph
             with script.open(mode="rb") as stream:assert stream.read()==original
             assert "--attempt" not in info.codes_info[0].cmdline_params
             assert info.codes_info[0].cmdline_params[2]=="/srv/qcl-negf/jobs/native/new-domain"
+            expected=["run-plan","plan.json","/srv/qcl-negf/jobs/native/new-domain",
+                "--execution-id",f["execution"]["execution_id"],"--source-graph","source-graph.json",
+                "--native-execution","native-execution.json","--native-calcjob-uuid",process.node.uuid]
+            assert info.codes_info[0].cmdline_params==expected
+            command=next(line for line in original.decode().splitlines() if "run-plan" in line)
+            words=shlex.split(command)
+            assert words[0]==str(f["code"].filepath_executable) and words[1:12]==expected
             assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","native-close.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
         with SandboxFolder() as second:
             process.presubmit(second)
