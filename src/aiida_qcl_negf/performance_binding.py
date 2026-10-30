@@ -1,14 +1,17 @@
-"""Bind one retained close sidecar to independently validated scientific pins.
+"""Read typed selected performance, explicitly retiring the old close wire.
 
 No NFS, catalog/latest lookup, scientific acceptance or retrospective mutation.
 """
 from __future__ import annotations
 
 import hashlib
-import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from qcl_negf_results.state import StateReader
+    from qcl_negf_results.performance_views import TelemetrySelection, PerformanceLimits
 
 from qcl_negf_contracts.artifacts import relative_path
-from qcl_negf_contracts.messages import decode
 
 MAX_METADATA = 1024 * 1024
 SELECTION = ("calcjob_uuid", "execution_id", "attempt", "plan_fingerprint")
@@ -50,26 +53,21 @@ def point_pins(points, commits, selection, source_owners=None):
 
 
 def verify_sidecar(raw, *, selection, result_raw, points, commits, source_owners=None):
-    """Pure bounded association after the owning parser has pinned science."""
-    from qcl_negf_results.performance_views import validate_performance_binding
+    """Retained callable signature; the removed v1 wire cannot be reverified."""
+    raise ValueError("legacy_performance_binding_v1_retired")
 
-    if type(raw) is not bytes or len(raw) > MAX_METADATA:
-        raise ValueError("performance sidecar exceeds retained metadata cap")
-    if set(selection) != set(SELECTION):
-        raise ValueError("exact execution selection required")
-    value = decode(raw, maximum=MAX_METADATA)
-    expected_pins = point_pins(points, commits, selection, source_owners)
-    _, summary = validate_performance_binding(
-        value, expected_selection=selection, expected_point_pins=expected_pins,
-        maximum=MAX_METADATA,
-    )
-    result_pin = {"path": "result/series_result.json", "bytes": len(result_raw), "sha256": sha(result_raw)}
-    if value["runner_result"] != result_pin:
-        raise ValueError("performance sidecar does not bind the exact retrieved scientific result")
-    return {"selection": dict(selection), "sidecar_sha256": sha(raw), "sidecar_bytes": len(raw),
-            "point_pins": expected_pins, "runner_result": result_pin,
-            "session_id": summary["session_id"], "commit_sha256": value["commit"]["sha256"],
-            "summary_sha256": value["summary"]["sha256"], "scope": "execution_attempt"}
+
+def verify_native_performance(reader: StateReader, *, telemetry: TelemetrySelection,
+                              limits: PerformanceLimits | None = None) -> dict:
+    """Read a public typed view, keeping caller assertions separate from origin.
+
+    Current A has no technical operand. A manually supplied TelemetrySelection
+    does not become an actual ORM creator certificate through this function.
+    """
+    from qcl_negf_results.performance_views import read_performance_summary
+    if telemetry is None:
+        return {"status":"unavailable","reason":"native_technical_context_unavailable"}
+    return read_performance_summary(reader,telemetry=telemetry,limits=limits)
 
 
 def retained_source(child, *, maximum=MAX_METADATA):
@@ -79,6 +77,8 @@ def retained_source(child, *, maximum=MAX_METADATA):
     except (AttributeError, KeyError):
         return {"status": "unavailable", "reason": "performance_binding_missing"}
     pin = pin_node.get_dict()
+    if "native_binding" in pin:
+        return {"status":"unavailable","reason":"native_technical_context_unavailable"}
     reference = pin.get("performance_binding")
     if reference is None:
         if pin.get("performance_status") == "invalid":
@@ -101,19 +101,9 @@ def retained_source(child, *, maximum=MAX_METADATA):
     if (len(raw) > min(MAX_METADATA, maximum) or len(raw) != reference["sidecar_bytes"]
             or sha(raw) != reference["sidecar_sha256"]):
         raise ValueError("retained performance bytes changed")
-    from qcl_negf_results.performance_views import validate_performance_binding
-    value = decode(raw, maximum=MAX_METADATA)
-    _, summary = validate_performance_binding(value, expected_selection=selection,
-                                             expected_point_pins=reference["point_pins"])
-    if value["runner_result"] != reference["runner_result"]:
-        raise ValueError("retained performance result differs")
-    if (reference["scope"] != "execution_attempt" or reference["session_id"] != summary["session_id"]
-            or reference["commit_sha256"] != value["commit"]["sha256"]
-            or reference["summary_sha256"] != value["summary"]["sha256"]):
-        raise ValueError("retained performance session/commit/summary pin differs")
-    binding = {key: reference[key] for key in ("selection", "sidecar_sha256", "point_pins", "runner_result")}
-    result = {"status": "available", "scope": "execution_attempt", "binding": binding,
-              "sidecar_uuid": sidecar.uuid, "sidecar_utf8": raw.decode("utf-8")}
-    if len(json.dumps(result, ensure_ascii=False).encode()) > 2 * MAX_METADATA:
-        raise ValueError("performance source response exceeds cap")
-    return result
+    # Original UUID/creator/bytes checks above still protect retained data. The
+    # legacy payload supplies no current typed contexts, so never claim verified
+    # or available metrics from the retired wire.
+    return {"status":"unavailable","reason":"legacy_performance_binding_v1_retired",
+            "sidecar_uuid":sidecar.uuid,"sidecar_utf8":raw.decode("utf-8"),
+            "integrity":{"native_contexts":"not_reverified","current_access":"not_checked"}}
