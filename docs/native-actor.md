@@ -38,9 +38,18 @@ environment value is untrusted: Platform P2 must independently compare actual
 argv with its protected `policy.jobs_root` and original relative root before
 claim. Platform owns that check and protected daemon wiring; their current native
 installation and qualification remain separate. The native command uses original
-plan/source-graph files and omits legacy `--attempt`. Its published Runner
-`--source-graph` producer port must match the selected component composition;
-this source branch must not activate against an older installed Runner.
+plan/source-graph/native-execution files and omits legacy `--attempt`. Its
+literal base command has eleven Runner argument tokens:
+
+```text
+run-plan plan.json <output> --execution-id <id> --source-graph source-graph.json --native-execution native-execution.json --native-calcjob-uuid <actual CalcJob UUID>
+```
+
+The UUID is the actual submitting process node UUID. Original file bytes and
+scientific arguments are preserved. These mandatory origin operands are
+independent of optional capture, which remains unset on this branch. The
+selected Runner and Platform script validator must support this exact command;
+this source change does not activate an older installed composition.
 
 Service admission resolves the original plan through the existing full
 `native_execution.input_plan` NodeFile UUID. It requires the exact stored
@@ -77,6 +86,41 @@ one selector and a unique exact match, with query limit two. Runtime workdir
 and job ID are mutable observations; they are reread and never treated as
 immutable INPUT certificates. Mutable extras and newest-row selection are not
 proof sources.
+
+The additional immutable-origin port is:
+
+```python
+read_native_origin_inputs(calcjob_uuid: str, *, source_epoch: str,
+                          maximum_metadata_bytes: int) -> tuple[bytes, bytes]
+```
+
+It returns the exact original native-execution INPUT bytes and the original
+`native_submit_script` CREATE bytes, in that order. It shares the actual stored
+typed INPUT/CALL/CREATE validation with the launch reader, inside
+`native_actor.py`. A mutable CalcJob repository copy, INPUT script, RETURN or
+calcfunction-created script cannot replace the CalcJob's genuine CREATE.
+Missing or ambiguous required links refuse the read.
+
+The source epoch must be exactly
+`c1-<lowercase32 CalcJob UUID>-<lowercase32 native_execution INPUT UUID>-<nonce>`.
+The nonce is a canonical UInt64 decimal, including zero, without leading zeroes
+or trailing whitespace. Both UUID tokens must match the actual stored graph;
+parsing an epoch or finding matching science fields grants no authority. This
+port returns operands for a separate creator join, not a creator certificate,
+native writer qualification or scientific acceptance. Same-child retained
+sources remain eligible; foreign-child sources still need their existing actual
+parent-binding chain. Inherited epochs and legacy epochs are not rewritten.
+
+The owner must already have loaded its profile. This port performs no current
+job/workdir selection or freshness read, accesses no NFS/backend and creates no
+profile. It therefore supports offline retained provenance checks. The existing
+launch and execution ports retain their current runtime selection and freshness
+guards. All ports keep the 8 MiB metadata workspace cap, 64 KiB per-original-file
+cap and bounded typed queries; failures never refund their workspace debit.
+Callers must prepay the port allowance from their existing aggregate budget.
+The original standard 113111-byte plan still exceeds the 64 KiB cap
+(`R-ELIGIBILITY-01` remains open). Small metadata fixtures do not qualify that
+plan, and this change adjusts neither the physical plan nor the limits.
 
 These library calls require a profile already loaded by their owner. The
 `qcl-negf-native-actor --profile PROFILE {launch|execution} CALCJOB_UUID
