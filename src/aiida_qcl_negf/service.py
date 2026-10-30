@@ -617,9 +617,12 @@ def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
 def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *,
                 scratch_root: str | None = None, release_id: str | None = None, max_attempts: int = 3,
                 retry_backoff_seconds: int = 10, archive_byte_budget: int = MAX_ARCHIVE_BYTES,
-                b0_slot=None) -> dict[str, Any]:
+                b0_slot=None, source_graph: orm.SinglefileData | None = None,
+                native_executions: dict[str, orm.SinglefileData] | None = None) -> dict[str, Any]:
     """Submit a frozen plan to the daemon after validating every admission input."""
     if b0_slot is not None:
+        if source_graph is not None or native_executions is not None:
+            raise ValueError("Native inputs cannot alias B0")
         from .b0 import submit_bound_plan
         from .validation import validated_plan_bytes
         raw, digest, metadata = validated_plan_bytes(plan)
@@ -685,6 +688,14 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
         raise ValueError("Release-pinned execution requires an immutable Nix InstalledCode path")
     if deployment_solver is not None and str(code.filepath_executable) != deployment_solver:
         raise ValueError("Selected Code executable differs from the deployment solver executable")
+    if source_graph is not None or native_executions is not None:
+        from .native_actor import _ingress, _original_plan, _Reads, MAX_METADATA
+        native_budget = _Reads(MAX_METADATA)
+        plan_node = _original_plan(plan_node,native_executions,native_budget)
+        options["native_executions"] = _ingress(plan_node,source_graph,native_executions,code,max_attempts,budget=native_budget)
+        options["source_graph"] = source_graph
+        if release_id is None:
+            raise ValueError("Native inputs require an explicit release")
     if not get_daemon_client().is_daemon_running:
         raise RuntimeError("AiiDA daemon is not running")
     node = submit(QCLPlanWorkChain, code=code, plan=plan_node, resources=orm.Dict(dict=resources), metadata={"label": label}, **options)

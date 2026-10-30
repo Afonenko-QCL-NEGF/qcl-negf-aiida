@@ -49,6 +49,11 @@ class QCLExecutionRestartWorkChain(BaseRestartWorkChain):
 
     def setup(self):
         super().setup()
+        if "source_graph" in self.inputs or "native_execution" in self.inputs:
+            if ("source_graph" not in self.inputs or "native_execution" not in self.inputs
+                    or self.inputs.max_iterations.value != 1 or
+                    any(name in self.inputs for name in ("b0_reference","recovery_bundle","prior_archive"))):
+                return self.exit_codes.ERROR_INVALID_RETRY_POLICY
         pause_policy = self.inputs.get("pause_on_max_iterations")
         unhandled_policy = self.inputs.get("on_unhandled_failure")
         overrides = self.inputs.get("handler_overrides")
@@ -125,6 +130,8 @@ class QCLPlanWorkChain(WorkChain):
         spec.input("archive_byte_budget", valid_type=orm.Int, default=lambda: orm.Int(MAX_ARCHIVE_BYTES))
         spec.input("release_id", valid_type=orm.Str, required=False)
         spec.input("b0_reference", valid_type=orm.Str, required=False)
+        spec.input("source_graph", valid_type=orm.SinglefileData, required=False)
+        spec.input_namespace("native_executions", dynamic=True, valid_type=orm.SinglefileData, required=False)
         spec.output_namespace("results", dynamic=True, valid_type=orm.SinglefileData)
         spec.output_namespace("artifacts", dynamic=True, valid_type=orm.FolderData)
         spec.output_namespace("selections", dynamic=True, valid_type=orm.Dict)
@@ -135,6 +142,8 @@ class QCLPlanWorkChain(WorkChain):
 
     def setup(self):
         if "b0_reference" in self.inputs:
+            if "source_graph" in self.inputs or "native_executions" in self.inputs:
+                return self.exit_codes.ERROR_INVALID_PLAN
             from .b0 import resume_controller
             controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
             with controller.operation("workchain_setup"):
@@ -150,6 +159,16 @@ class QCLPlanWorkChain(WorkChain):
                     or not 0 <= self.inputs.retry_backoff_seconds.value <= 300
                     or self.inputs.archive_byte_budget.value < 1):
                 raise ValueError("Retry and transfer budgets must be finite and positive")
+            if "source_graph" in self.inputs or "native_executions" in self.inputs:
+                from .native_actor import _ingress
+                if "b0_reference" in self.inputs or "source_graph" not in self.inputs or "native_executions" not in self.inputs:
+                    raise ValueError("Native inputs require graph and exact executions without B0")
+                expected = {f"execution_{i}" for i in range(len(plan["executions"]))}
+                if set(self.inputs.native_executions) != expected:
+                    raise ValueError("Native execution input namespace differs from frozen plan")
+                _ingress(self.inputs.plan,self.inputs.source_graph,
+                    {e["id"]:self.inputs.native_executions[f"execution_{i}"] for i,e in enumerate(plan["executions"])},
+                    self.inputs.code,self.inputs.max_attempts.value)
         except (ValueError, TypeError, KeyError) as exception:
             self.report(str(exception))
             return self.exit_codes.ERROR_INVALID_PLAN
@@ -209,6 +228,9 @@ class QCLPlanWorkChain(WorkChain):
                 options["scratch_root"] = self.inputs.scratch_root
             if "release_id" in self.inputs:
                 options["release_id"] = self.inputs.release_id
+            if "source_graph" in self.inputs:
+                options["source_graph"] = self.inputs.source_graph
+                options["native_execution"] = self.inputs.native_executions[key]
             child = self.submit(
                 QCLExecutionRestartWorkChain,
                 code=self.inputs.code,

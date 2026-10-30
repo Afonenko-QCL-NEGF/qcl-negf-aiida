@@ -19,6 +19,15 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/Afonenko-QCL-NEGF/qcl-negf-aiida"
 
+[project.scripts]
+qcl-negf-native-actor = "aiida_qcl_negf.native_actor:main"
+
+[project.entry-points."aiida.schedulers"]
+"qcl_negf.native_slurm" = "aiida_qcl_negf.native_backend:NativeSlurmScheduler"
+
+[project.entry-points."aiida.transports"]
+"qcl_negf.native_local" = "aiida_qcl_negf.native_backend:NativeLocalTransport"
+
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "qcl-negf-results==0.2.0"]
 build = ["build>=1.2,<2", "hatchling>=1.27,<2"]
