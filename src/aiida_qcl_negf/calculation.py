@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+import os
 import re
 import shlex
 
@@ -23,6 +25,8 @@ class QCLExecutionCalculation(CalcJob):
     def define(cls, spec):
         super().define(spec)
         spec.input("plan", valid_type=orm.SinglefileData)
+        spec.input("source_graph", valid_type=orm.SinglefileData, required=False)
+        spec.input("native_execution", valid_type=orm.SinglefileData, required=False)
         spec.input("execution_id", valid_type=orm.Str)
         spec.input("attempt", valid_type=orm.Int, default=lambda: orm.Int(1))
         spec.input("recovery_bundle", valid_type=orm.FolderData, required=False)
@@ -36,6 +40,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.input("metadata.options.withmpi", default=False)
         spec.input("metadata.options.output_filename", default="solver.stdout")
         spec.output("result", valid_type=orm.SinglefileData, required=False)
+        spec.output("native_submit_script", valid_type=orm.SinglefileData, required=False)
         spec.output("inventory", valid_type=orm.Dict, required=False)
         spec.output("delivery", valid_type=orm.Dict, required=False)
         spec.output("recovery_bundle", valid_type=orm.FolderData, required=False)
@@ -66,12 +71,88 @@ class QCLExecutionCalculation(CalcJob):
         super()._setup_metadata(metadata)
 
     def prepare_for_submission(self, folder):
+        if "source_graph" in self.inputs or "native_execution" in self.inputs:
+            return self._prepare_native(folder)
         if "b0_reference" in self.inputs:
             from .b0 import resume_controller
             controller = resume_controller(self.inputs.b0_reference.value, self.node.uuid)
             with controller.operation("prepare_bound_calcjob"):
                 return self._prepare_for_submission(folder)
         return self._prepare_for_submission(folder)
+
+    def presubmit(self, folder):
+        info = super().presubmit(folder)
+        if "native_execution" not in self.inputs:
+            return info
+        from aiida.common.links import LinkType
+        from .native_actor import MAX_FILE, _Reads, _related, _need
+        budget = _Reads(8*1024*1024)
+        with folder.open("_aiidasubmit.sh","rb") as stream:
+            budget.charge(8*(MAX_FILE+1))
+            raw = stream.read(MAX_FILE+1)
+        _need(len(raw)<=MAX_FILE,"submit_script_bound")
+        query = orm.QueryBuilder().append(orm.CalcJobNode,filters={"uuid":self.node.uuid},tag="calc")
+        query.append(orm.Node,with_incoming="calc",edge_filters={"type":"create","label":"native_submit_script"},project="*")
+        existing = budget.query(query)
+        _need(len(existing)<=1,"ambiguous_submit_script")
+        if not existing:
+            script = orm.SinglefileData(file=io.BytesIO(raw),filename="_aiidasubmit.sh")
+            self.out("native_submit_script",script)
+            self.update_outputs()  # public genuine CREATE; original failure retained
+        script = _related(self.node,LinkType.CREATE,"native_submit_script",budget,outgoing=True)
+        _need(budget.file(script)==raw,"submit_script_conflict")
+        return info
+
+    def _prepare_native(self, folder):
+        from .native_actor import (_Reads, MAX_METADATA, NativeActorUnavailable,
+                                   _need, _validate_native_inputs, _reviewed_options)
+        _need("source_graph" in self.inputs and "native_execution" in self.inputs,
+              "native_input_pair_required")
+        _need(not any(key in self.inputs for key in ("b0_reference", "recovery_bundle", "prior_archive")),
+              "native_legacy_recovery_unavailable")
+        # This selector is not authority. Platform must independently match the
+        # actual argv against protected policy before its first durable claim.
+        try:
+            jobs_root = validate_scratch_root(os.environ.get("QCL_NEGF_NATIVE_JOBS_ROOT"))
+        except ValueError as error:
+            raise NativeActorUnavailable("native_output_mapping_unavailable") from error
+        budget = _Reads(MAX_METADATA)
+        native, plan, raws = _validate_native_inputs(self.inputs.plan, self.inputs.source_graph,
+            self.inputs.native_execution, self.inputs.code, self.inputs.execution_id.value, budget)
+        validate_plan(plan)
+        _need(type(self.inputs.attempt.value) is int and self.inputs.attempt.value > 0,
+              "transport_scalar_inputs")
+        _need("release_id" in self.inputs and
+              self.inputs.release_id.value == native["code"]["release_id"], "release_input_binding")
+        _reviewed_options(self.inputs.code, self.node.get_options())
+        resources = self.options.resources
+        cores = resources.get("num_cores_per_mpiproc")
+        _need(resources.get("num_machines") == resources.get("num_mpiprocs_per_machine") == 1 and
+              type(cores) is int and cores > 0, "native_thread_resources")
+        _need(self.options.environment_variables ==
+              {"JULIA_NUM_THREADS": str(cores), "OPENBLAS_NUM_THREADS": "1"}, "native_environment")
+        _need(self.options.output_filename == "solver.stdout", "native_control_filename")
+        output = validate_scratch_root(jobs_root + "/" + native["storage"]["relative_execution_root"])
+        for filename, raw in zip(("plan.json", "source-graph.json", "native-execution.json"), raws):
+            with folder.open(filename, "wb") as stream:
+                stream.write(raw)
+        code = CodeInfo()
+        code.code_uuid = self.inputs.code.uuid
+        code.cmdline_params = ["run-plan", "plan.json", output, "--execution-id",
+                               self.inputs.execution_id.value, "--source-graph", "source-graph.json"]
+        # Transport attempt is not a native point counter; no --attempt alias.
+        if "scratch_root" in self.inputs:
+            code.cmdline_params.extend(["--scratch-root", validate_scratch_root(self.inputs.scratch_root.value)])
+        code.stdout_name, code.stderr_name, code.withmpi = "solver.stdout", "solver.stderr", False
+        info = CalcInfo()
+        info.prepend_text = (
+            "/run/current-system/sw/bin/qcl-negf-release guard --release-id " + shlex.quote(self.inputs.release_id.value)
+            + " --solver-executable " + shlex.quote(str(self.inputs.code.filepath_executable))
+            + " || exit 78\nunset QCL_NEGF_CAPTURE_SPEC")
+        info.codes_info = [code]
+        # Stock presubmit adds its two scheduler logs. Q1 still gates all gets.
+        info.retrieve_list = ["series_result.json", "native-selection.json"]
+        return info
 
     def _prepare_for_submission(self, folder):
         plan = validate_plan(read_plan(self.inputs.plan))
