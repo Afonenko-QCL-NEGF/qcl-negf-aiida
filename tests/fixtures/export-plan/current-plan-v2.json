@@ -1,0 +1,900 @@
+{
+  "campaign": null,
+  "computation_count": 1,
+  "executions": [
+    {
+      "definition_id": "study",
+      "effective_inputs": {
+        "energy_max_eV": 1.0,
+        "energy_min_eV": -1.0,
+        "energy_nodes": 3,
+        "energy_shift": "none",
+        "seed": {}
+      },
+      "estimated_peak_bytes": 256,
+      "id": "execution-1",
+      "label": "",
+      "method_id": "method",
+      "operation": "stationary",
+      "output": {
+        "archive": {
+          "full_final": true,
+          "intermediate_history": 16,
+          "optical": false,
+          "projections": true
+        },
+        "recovery": {
+          "byte_budget": 8589934592,
+          "enabled": true,
+          "interval_seconds": 1800.0,
+          "reserve_bytes": 67108864,
+          "retain_generations": 2
+        },
+        "telemetry": {
+          "buffer_events": 256,
+          "enabled": true
+        }
+      },
+      "point_ids": [
+        "point-1"
+      ],
+      "policies": {},
+      "provenance": {},
+      "purpose": "diagnostic",
+      "repetition": 1,
+      "resolved_configuration": {
+        "algorithms": {
+          "anderson": {
+            "damping": 1.0,
+            "history_depth": 6,
+            "regularization": 1e-12
+          },
+          "contraction": "dense_blas",
+          "energy_shift": "sparse_plan",
+          "hilbert": "direct",
+          "kernel_build": "direct",
+          "localization": "pzp",
+          "low_rank": {
+            "maximum_rank": 0,
+            "relative_tolerance": 0.0
+          },
+          "mixing": "linear",
+          "retarded_real_part": "kramers_kronig",
+          "self_energy_structure": "full",
+          "transverse_momentum": "resolved"
+        },
+        "execution": {
+          "auto": {
+            "blocks_per_worker": 4,
+            "energy_chunk_alignment": 8,
+            "energy_jobs_per_worker": 2,
+            "hilbert_columns_per_worker": 8,
+            "large_basis_threshold": 32,
+            "memory_reserve_fraction": 0.125,
+            "minimum_energy_chunk": 8,
+            "minimum_memory_reserve_bytes": 2147483648,
+            "minimum_outer_parallel_threads": 4,
+            "workspace_budget_fraction": 0.05,
+            "workspace_complex_arrays_per_energy_block": 12
+          },
+          "blas_threads": 1,
+          "fail_on_thread_mismatch": false,
+          "julia_threads": 0,
+          "solver_backend": "production",
+          "strategy": "auto_exact"
+        },
+        "kernel_construction": {
+          "angular_validation_pairs": 3,
+          "impurity_angular_tolerance": 1e-05,
+          "initial_lookup_nodes": 65,
+          "lookup_power": 2.0,
+          "maximum_lookup_nodes": 513,
+          "relative_tolerance": 0.0002,
+          "strict": true,
+          "validation_fractions": [
+            0.25,
+            0.5,
+            0.75
+          ]
+        },
+        "numerical": {
+          "angular_nodes": 8,
+          "basis_periods": 1,
+          "basis_states": 3,
+          "energy_max": "0.45 eV",
+          "energy_min": "-0.15 eV",
+          "energy_nodes": 49,
+          "energy_trust_margin": "80 meV",
+          "longitudinal_momentum_max": "10.0 nm^-1",
+          "longitudinal_momentum_nodes": 25,
+          "momentum_max": "0.60 nm^-1",
+          "momentum_nodes": 5,
+          "seed_broadening": "0.5 meV",
+          "spatial_nodes": 48
+        },
+        "output": {
+          "checkpoint_prefix": "state",
+          "debug_hdf5": false,
+          "device_geometry": {
+            "cavity_length": "1.8 mm",
+            "periods": 405,
+            "ridge_width": "150 μm"
+          },
+          "directory": "results/base",
+          "fail_fast": false,
+          "light_max_energy_points": 512,
+          "light_max_momentum_points": 64,
+          "light_max_snapshots": 16,
+          "light_max_space_points": 2048,
+          "live_visualization": false,
+          "progress": {
+            "dashboard_file": null,
+            "enabled": true,
+            "event_log_file": "progress/events.csv",
+            "human_every": 5,
+            "latest_snapshot_file": "progress/latest.csv",
+            "significant_digits": 4,
+            "terminal": false
+          },
+          "report_directory": "expert_report",
+          "resume": false,
+          "save_comparison_csv": true,
+          "save_comparison_plots": true,
+          "save_csv": true,
+          "save_expert_markdown": true,
+          "save_full_state": true,
+          "save_plots": false,
+          "snapshot_every_outer": 1,
+          "snapshot_every_scba": 25
+        },
+        "physical": {
+          "acoustic_deformation_potential": "7.0 eV",
+          "alloy_potential": null,
+          "donor_sheet_density": "4.5e14 m^-2",
+          "field_bias": null,
+          "high_frequency_relative_permittivity": 10.89,
+          "impurity_screening_wavenumber": "0.20 nm^-1",
+          "interface_correlation_length": "9.0 nm",
+          "interface_roughness_height": "0.10 nm",
+          "interfaces": [
+            "0 nm",
+            "3.26 nm",
+            "11.25 nm",
+            "13.15 nm"
+          ],
+          "ionization_fraction": 1.0,
+          "lattice_temperature": "70.0 K",
+          "layers": [
+            {
+              "aluminium_fraction": 0.25,
+              "conduction_band_edge": "0.20775 eV",
+              "doped": false,
+              "longitudinal_relative_mass": 0.08775,
+              "material": "AlGaAs",
+              "relative_permittivity": 12.9,
+              "thickness": "3.26 nm",
+              "transverse_relative_mass": 0.08775
+            },
+            {
+              "aluminium_fraction": 0.0,
+              "conduction_band_edge": "0 eV",
+              "doped": false,
+              "longitudinal_relative_mass": 0.067,
+              "material": "GaAs",
+              "relative_permittivity": 12.9,
+              "thickness": "7.99 nm",
+              "transverse_relative_mass": 0.067
+            },
+            {
+              "aluminium_fraction": 0.25,
+              "conduction_band_edge": "0.20775 eV",
+              "doped": false,
+              "longitudinal_relative_mass": 0.08775,
+              "material": "AlGaAs",
+              "relative_permittivity": 12.9,
+              "thickness": "1.90 nm",
+              "transverse_relative_mass": 0.08775
+            },
+            {
+              "aluminium_fraction": 0.0,
+              "conduction_band_edge": "0 eV",
+              "doped": false,
+              "longitudinal_relative_mass": 0.067,
+              "material": "GaAs",
+              "relative_permittivity": 12.9,
+              "thickness": "8.40 nm",
+              "transverse_relative_mass": 0.067
+            },
+            {
+              "aluminium_fraction": 0.0,
+              "conduction_band_edge": "0 eV",
+              "doped": true,
+              "longitudinal_relative_mass": 0.067,
+              "material": "GaAs",
+              "relative_permittivity": 12.9,
+              "thickness": "2.90 nm",
+              "transverse_relative_mass": 0.067
+            },
+            {
+              "aluminium_fraction": 0.0,
+              "conduction_band_edge": "0 eV",
+              "doped": false,
+              "longitudinal_relative_mass": 0.067,
+              "material": "GaAs",
+              "relative_permittivity": 12.9,
+              "thickness": "5.16 nm",
+              "transverse_relative_mass": 0.067
+            }
+          ],
+          "lo_phonon_energy": "36.7 meV",
+          "lo_screening_wavenumber": "0.20 nm^-1",
+          "lo_temperature": "70.0 K",
+          "mass_density": "5317 kg/m^3",
+          "position_origin": "0 nm",
+          "primitive_cell_volume": null,
+          "reference_energy": "0 eV",
+          "sound_velocity": "5240 m/s",
+          "spin_degeneracy": 2,
+          "static_relative_permittivity": 12.9,
+          "voltage_per_period": "56 mV"
+        },
+        "production": {
+          "checkpoint_every_outer": 0,
+          "checkpoint_every_scba": 0,
+          "energy_chunk": 64,
+          "hilbert_columns": 32,
+          "parallel_backend": "threads",
+          "phase_timing": false,
+          "progress_every_outer": 1,
+          "progress_every_scba": 5,
+          "residual_chunk": 256,
+          "verify_fft_roundoff": true,
+          "worker_count": 0
+        },
+        "run": {
+          "classification": "reference",
+          "description": "Канонический паспорт физической модели QCL; запуск задаётся научным исследованием.",
+          "name": "resource-proposal-fixture-baseline"
+        },
+        "scales": {
+          "energy": "0.1 eV",
+          "length": "10 nm",
+          "reference_mass_ratio": 0.067
+        },
+        "scattering": {
+          "acoustic_phonon": true,
+          "alloy_disorder": false,
+          "interface_roughness": true,
+          "ionized_impurity": true,
+          "lo_phonon": true
+        },
+        "solver": {
+          "convergence": {
+            "diagnostic_quality": {
+              "causality": 1e-10,
+              "coarse_wait_iterations": 64,
+              "enabled": true,
+              "keldysh": 0.001,
+              "normalization": 0.0001,
+              "observables": 0.001,
+              "outer_threshold": 0.0001,
+              "positivity": 1e-06,
+              "required_consecutive_passes": 3,
+              "self_energy": 0.001,
+              "strict_attempt_iterations": 8,
+              "target_fixed_point": 0.0001
+            },
+            "minimum_poisson_iterations": 2,
+            "minimum_scba_iterations": 2,
+            "mode": "strict_fail_fast",
+            "required_consecutive_poisson_passes": 2,
+            "required_consecutive_scba_passes": 3,
+            "stagnation_relative_improvement": 0.01,
+            "stagnation_window": 200,
+            "trend": {
+              "max_oscillation": 10.0,
+              "max_regression": 2.0,
+              "minimum_reduction": 0.5,
+              "promising_threshold": 0.0001,
+              "window": 32
+            }
+          },
+          "maximum_poisson_iterations": 100,
+          "maximum_scba_iterations": 2000,
+          "poisson_mixing": 0.15,
+          "self_energy_mixing": 0.1,
+          "tolerances": {
+            "causality": 1e-10,
+            "collision": 1e-08,
+            "current_continuity": 1e-06,
+            "density": 1e-07,
+            "dyson": 1e-11,
+            "energy_edge": 1e-06,
+            "fft_roundoff": 1e-10,
+            "hartree": 1e-07,
+            "imaginary_part": 1e-10,
+            "keldysh": 1e-08,
+            "neutrality": 1e-10,
+            "normalization": 1e-08,
+            "observables": 0.0001,
+            "poisson": 1e-11,
+            "poisson_gauge": 1e-10,
+            "positivity": 1e-10,
+            "power": 0.0001,
+            "self_energy": 1e-08,
+            "spectral_identity": 1e-09,
+            "sum_rule": 0.001,
+            "tail": 1e-06
+          },
+          "validation_windows": {
+            "energy_tail_fraction": 0.05,
+            "momentum_tail_fraction": 0.1
+          }
+        },
+        "study": {
+          "calculate_optical_response": false,
+          "comparison_profiles": [],
+          "convergence": {
+            "angular_nodes": [],
+            "energy_nodes": [],
+            "momentum_nodes": [],
+            "spatial_nodes": []
+          },
+          "methods": [],
+          "mode": "single",
+          "optical_edge_tolerance": 0.0001,
+          "photon_energy_max": "80 meV",
+          "photon_energy_min": "1 meV",
+          "photon_energy_points": 321,
+          "reference_profile": null,
+          "repetitions": 1,
+          "temperatures": [
+            "70.0 K"
+          ],
+          "voltages_per_period": [
+            "0.0 V"
+          ]
+        }
+      },
+      "resolved_snapshot": {
+        "default_rule_sources": {
+          "fixture-rule": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "derived": {
+          "effective_seed": {
+            "clamped": false,
+            "effective_eV": 0.001,
+            "effective_scaled": 0.01,
+            "grid_floor_eV": 0.0,
+            "grid_floor_scaled": 0.0,
+            "requested_eV": 0.001,
+            "requested_scaled": 0.01,
+            "rule": "manufactured",
+            "working_eta_eV": 0.0
+          }
+        },
+        "model_binding": {
+          "encoding": "qcl-negf-canonical-bytes-v1",
+          "scope": "stationary_transport_inputs_v1",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "phase": "resolved_declarative_inputs",
+        "raw_configuration": {
+          "algorithms": {
+            "anderson": {
+              "damping": 1.0,
+              "history_depth": 6,
+              "regularization": 1e-12
+            },
+            "contraction": "dense_blas",
+            "energy_shift": "sparse_plan",
+            "hilbert": "direct",
+            "kernel_build": "direct",
+            "localization": "pzp",
+            "low_rank": {
+              "maximum_rank": 0,
+              "relative_tolerance": 0.0
+            },
+            "mixing": "linear",
+            "retarded_real_part": "kramers_kronig",
+            "self_energy_structure": "full",
+            "transverse_momentum": "resolved"
+          },
+          "execution": {
+            "auto": {
+              "blocks_per_worker": 4,
+              "energy_chunk_alignment": 8,
+              "energy_jobs_per_worker": 2,
+              "hilbert_columns_per_worker": 8,
+              "large_basis_threshold": 32,
+              "memory_reserve_fraction": 0.125,
+              "minimum_energy_chunk": 8,
+              "minimum_memory_reserve_bytes": 2147483648,
+              "minimum_outer_parallel_threads": 4,
+              "workspace_budget_fraction": 0.05,
+              "workspace_complex_arrays_per_energy_block": 12
+            },
+            "blas_threads": 1,
+            "fail_on_thread_mismatch": false,
+            "julia_threads": 0,
+            "solver_backend": "production",
+            "strategy": "auto_exact"
+          },
+          "kernel_construction": {
+            "angular_validation_pairs": 3,
+            "impurity_angular_tolerance": 1e-05,
+            "initial_lookup_nodes": 65,
+            "lookup_power": 2.0,
+            "maximum_lookup_nodes": 513,
+            "relative_tolerance": 0.0002,
+            "strict": true,
+            "validation_fractions": [
+              0.25,
+              0.5,
+              0.75
+            ]
+          },
+          "numerical": {
+            "angular_nodes": 8,
+            "basis_periods": 1,
+            "basis_states": 3,
+            "energy_max": "0.45 eV",
+            "energy_min": "-0.15 eV",
+            "energy_nodes": 49,
+            "energy_trust_margin": "80 meV",
+            "longitudinal_momentum_max": "10.0 nm^-1",
+            "longitudinal_momentum_nodes": 25,
+            "momentum_max": "0.60 nm^-1",
+            "momentum_nodes": 5,
+            "seed_broadening": "0.5 meV",
+            "spatial_nodes": 48
+          },
+          "output": {
+            "checkpoint_prefix": "state",
+            "debug_hdf5": false,
+            "device_geometry": {
+              "cavity_length": "1.8 mm",
+              "periods": 405,
+              "ridge_width": "150 μm"
+            },
+            "directory": "results/base",
+            "fail_fast": false,
+            "light_max_energy_points": 512,
+            "light_max_momentum_points": 64,
+            "light_max_snapshots": 16,
+            "light_max_space_points": 2048,
+            "live_visualization": false,
+            "progress": {
+              "dashboard_file": null,
+              "enabled": true,
+              "event_log_file": "progress/events.csv",
+              "human_every": 5,
+              "latest_snapshot_file": "progress/latest.csv",
+              "significant_digits": 4,
+              "terminal": false
+            },
+            "report_directory": "expert_report",
+            "resume": false,
+            "save_comparison_csv": true,
+            "save_comparison_plots": true,
+            "save_csv": true,
+            "save_expert_markdown": true,
+            "save_full_state": true,
+            "save_plots": false,
+            "snapshot_every_outer": 1,
+            "snapshot_every_scba": 25
+          },
+          "physical": {
+            "acoustic_deformation_potential": "7.0 eV",
+            "alloy_potential": null,
+            "donor_sheet_density": "4.5e14 m^-2",
+            "field_bias": null,
+            "high_frequency_relative_permittivity": 10.89,
+            "impurity_screening_wavenumber": "0.20 nm^-1",
+            "interface_correlation_length": "9.0 nm",
+            "interface_roughness_height": "0.10 nm",
+            "interfaces": [
+              "0 nm",
+              "3.26 nm",
+              "11.25 nm",
+              "13.15 nm"
+            ],
+            "ionization_fraction": 1.0,
+            "lattice_temperature": "70.0 K",
+            "layers": [
+              {
+                "aluminium_fraction": 0.25,
+                "conduction_band_edge": "0.20775 eV",
+                "doped": false,
+                "longitudinal_relative_mass": 0.08775,
+                "material": "AlGaAs",
+                "relative_permittivity": 12.9,
+                "thickness": "3.26 nm",
+                "transverse_relative_mass": 0.08775
+              },
+              {
+                "aluminium_fraction": 0.0,
+                "conduction_band_edge": "0 eV",
+                "doped": false,
+                "longitudinal_relative_mass": 0.067,
+                "material": "GaAs",
+                "relative_permittivity": 12.9,
+                "thickness": "7.99 nm",
+                "transverse_relative_mass": 0.067
+              },
+              {
+                "aluminium_fraction": 0.25,
+                "conduction_band_edge": "0.20775 eV",
+                "doped": false,
+                "longitudinal_relative_mass": 0.08775,
+                "material": "AlGaAs",
+                "relative_permittivity": 12.9,
+                "thickness": "1.90 nm",
+                "transverse_relative_mass": 0.08775
+              },
+              {
+                "aluminium_fraction": 0.0,
+                "conduction_band_edge": "0 eV",
+                "doped": false,
+                "longitudinal_relative_mass": 0.067,
+                "material": "GaAs",
+                "relative_permittivity": 12.9,
+                "thickness": "8.40 nm",
+                "transverse_relative_mass": 0.067
+              },
+              {
+                "aluminium_fraction": 0.0,
+                "conduction_band_edge": "0 eV",
+                "doped": true,
+                "longitudinal_relative_mass": 0.067,
+                "material": "GaAs",
+                "relative_permittivity": 12.9,
+                "thickness": "2.90 nm",
+                "transverse_relative_mass": 0.067
+              },
+              {
+                "aluminium_fraction": 0.0,
+                "conduction_band_edge": "0 eV",
+                "doped": false,
+                "longitudinal_relative_mass": 0.067,
+                "material": "GaAs",
+                "relative_permittivity": 12.9,
+                "thickness": "5.16 nm",
+                "transverse_relative_mass": 0.067
+              }
+            ],
+            "lo_phonon_energy": "36.7 meV",
+            "lo_screening_wavenumber": "0.20 nm^-1",
+            "lo_temperature": "70.0 K",
+            "mass_density": "5317 kg/m^3",
+            "position_origin": "0 nm",
+            "primitive_cell_volume": null,
+            "reference_energy": "0 eV",
+            "sound_velocity": "5240 m/s",
+            "spin_degeneracy": 2,
+            "static_relative_permittivity": 12.9,
+            "voltage_per_period": "56 mV"
+          },
+          "production": {
+            "checkpoint_every_outer": 0,
+            "checkpoint_every_scba": 0,
+            "energy_chunk": 64,
+            "hilbert_columns": 32,
+            "parallel_backend": "threads",
+            "phase_timing": false,
+            "progress_every_outer": 1,
+            "progress_every_scba": 5,
+            "residual_chunk": 256,
+            "verify_fft_roundoff": true,
+            "worker_count": 0
+          },
+          "run": {
+            "classification": "reference",
+            "description": "Канонический паспорт физической модели QCL; запуск задаётся научным исследованием.",
+            "name": "resource-proposal-fixture-baseline"
+          },
+          "scales": {
+            "energy": "0.1 eV",
+            "length": "10 nm",
+            "reference_mass_ratio": 0.067
+          },
+          "scattering": {
+            "acoustic_phonon": true,
+            "alloy_disorder": false,
+            "interface_roughness": true,
+            "ionized_impurity": true,
+            "lo_phonon": true
+          },
+          "solver": {
+            "convergence": {
+              "diagnostic_quality": {
+                "causality": 1e-10,
+                "coarse_wait_iterations": 64,
+                "enabled": true,
+                "keldysh": 0.001,
+                "normalization": 0.0001,
+                "observables": 0.001,
+                "outer_threshold": 0.0001,
+                "positivity": 1e-06,
+                "required_consecutive_passes": 3,
+                "self_energy": 0.001,
+                "strict_attempt_iterations": 8,
+                "target_fixed_point": 0.0001
+              },
+              "minimum_poisson_iterations": 2,
+              "minimum_scba_iterations": 2,
+              "mode": "strict_fail_fast",
+              "required_consecutive_poisson_passes": 2,
+              "required_consecutive_scba_passes": 3,
+              "stagnation_relative_improvement": 0.01,
+              "stagnation_window": 200,
+              "trend": {
+                "max_oscillation": 10.0,
+                "max_regression": 2.0,
+                "minimum_reduction": 0.5,
+                "promising_threshold": 0.0001,
+                "window": 32
+              }
+            },
+            "maximum_poisson_iterations": 100,
+            "maximum_scba_iterations": 2000,
+            "poisson_mixing": 0.15,
+            "self_energy_mixing": 0.1,
+            "tolerances": {
+              "causality": 1e-10,
+              "collision": 1e-08,
+              "current_continuity": 1e-06,
+              "density": 1e-07,
+              "dyson": 1e-11,
+              "energy_edge": 1e-06,
+              "fft_roundoff": 1e-10,
+              "hartree": 1e-07,
+              "imaginary_part": 1e-10,
+              "keldysh": 1e-08,
+              "neutrality": 1e-10,
+              "normalization": 1e-08,
+              "observables": 0.0001,
+              "poisson": 1e-11,
+              "poisson_gauge": 1e-10,
+              "positivity": 1e-10,
+              "power": 0.0001,
+              "self_energy": 1e-08,
+              "spectral_identity": 1e-09,
+              "sum_rule": 0.001,
+              "tail": 1e-06
+            },
+            "validation_windows": {
+              "energy_tail_fraction": 0.05,
+              "momentum_tail_fraction": 0.1
+            }
+          },
+          "study": {
+            "calculate_optical_response": false,
+            "comparison_profiles": [],
+            "convergence": {
+              "angular_nodes": [],
+              "energy_nodes": [],
+              "momentum_nodes": [],
+              "spatial_nodes": []
+            },
+            "methods": [],
+            "mode": "single",
+            "optical_edge_tolerance": 0.0001,
+            "photon_energy_max": "80 meV",
+            "photon_energy_min": "1 meV",
+            "photon_energy_points": 321,
+            "reference_profile": null,
+            "repetitions": 1,
+            "temperatures": [
+              "70.0 K"
+            ],
+            "voltages_per_period": [
+              "0.0 V"
+            ]
+          }
+        },
+        "schema": "qcl-negf-resolved-configuration-v1",
+        "sections": {
+          "algorithms": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "domain_adaptation": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "execution": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "kernel_construction": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "numerical": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "output": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "physical": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "physical_models": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "production": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "scales": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "scattering": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "solver": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          },
+          "study": {
+            "input_assigning_histories": {},
+            "origin": "owning_resolution_rule",
+            "rule_source": "fixture-rule#parse",
+            "used": {
+              "example": null
+            }
+          }
+        }
+      },
+      "resource_estimate": {
+        "adaptation_enabled": false,
+        "admitted_memory_bytes": null,
+        "allocator_overhead_bytes": null,
+        "basis": {
+          "core_estimator_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "runner_formula_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "confidence": "analytical_conservative_uncalibrated",
+        "decision_kind": "planning_estimate",
+        "declared_cap": {
+          "breakdown": {
+            "manufactured": 128
+          },
+          "peak_bytes": 256,
+          "resident_bytes": 128
+        },
+        "declared_maximum_energy_nodes": 3,
+        "estimated_numerical_peak_bytes": 256,
+        "initial": {
+          "breakdown": {
+            "manufactured": 128
+          },
+          "peak_bytes": 256,
+          "resident_bytes": 128
+        },
+        "initial_energy_nodes": 3,
+        "measured_rss_bytes": null,
+        "retained_resident_bytes": 0,
+        "runtime_overhead_bytes": null,
+        "schema": "qcl-negf-resource-estimate-v1",
+        "status": "available",
+        "total_memory_request_bytes": null,
+        "unknown": [
+          "runtime_overhead",
+          "allocator_overhead",
+          "native_grant",
+          "measured_rss"
+        ],
+        "worker_capacity": 2
+      },
+      "variant_id": "variant"
+    }
+  ],
+  "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "inclusions": [],
+  "maximum_solver_runs": 1,
+  "model_revision": "transport-contract-v2",
+  "name": "Manufactured export-plan test fixture; no scientific provenance",
+  "nodes": [
+    {
+      "estimated_memory_bytes": 256,
+      "stage_id": "standalone",
+      "required_evidence": [],
+      "comparable_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "execution_id": "execution-1",
+      "comparison_reference": null,
+      "forbidden_evidence": [],
+      "priority": 0,
+      "reserve": false,
+      "comparison_kind": "controlled_axis",
+      "controlled_paths": [],
+      "depends_on": []
+    }
+  ],
+  "points": [
+    {
+      "branch": "forward",
+      "effective_inputs": {
+        "axes_applied": true,
+        "configuration_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "hash_encoding": "qcl-negf-canonical-bytes-v1",
+        "model_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "temperature_K": 70.0,
+        "voltage_per_period_V": 0.05
+      },
+      "execution_id": "execution-1",
+      "id": "point-1",
+      "initialization": "cold",
+      "order": 1,
+      "predecessor_id": null,
+      "temperature_K": 70.0,
+      "voltage_per_period_V": 0.05
+    }
+  ],
+  "resolved_snapshot_schema": "qcl-negf-resolved-configuration-v1",
+  "resources": {
+    "estimated_peak_bytes": 256,
+    "maximum_active_executions": 1,
+    "minimum_output_bytes": 0
+  },
+  "root_definition_id": "study",
+  "root_kind": "study",
+  "schema": "qcl-negf-scientific-plan-v2",
+  "science_archive_preflight": null,
+  "scientific_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
