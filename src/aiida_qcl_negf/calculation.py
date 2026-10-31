@@ -8,6 +8,8 @@ import json
 import os
 import re
 import shlex
+import stat
+import hashlib
 
 from aiida import orm
 from aiida.common.datastructures import CalcInfo, CodeInfo
@@ -16,6 +18,117 @@ from aiida.engine import CalcJob, ExitCode
 from .validation import MAX_PLAN_BYTES, validate_plan, validate_scratch_root
 from .data import read_plan
 from .recovery import MAX_ARCHIVE_BYTES
+
+
+_CAPTURE_EXPORT = ('export QCL_NEGF_CAPTURE_SPEC=capture-spec.json '
+                   'QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json')
+_CAPTURE_TARGET = 'capture-spec.json'
+_CAPTURE_TEMP = 'capture-spec.json.tmp'  # Legacy reserved name: refusal/read only.
+
+
+def _capture_close(fd,primary,state):
+    try:os.close(fd)
+    except BaseException as error:
+        state['close_uncertain']=True
+        if primary is None:raise
+        primary.add_note('capture file close failed: '+type(error).__name__)
+
+
+def _sandbox_stamp(value):
+    return value.st_dev,value.st_ino,value.st_uid,value.st_gid,stat.S_IMODE(value.st_mode)
+
+
+class _CaptureSandbox:
+    """One bounded owning presubmit gate, never a general file/publication API."""
+    def __init__(self,folder,state):
+        from .native_actor import _need
+        self.state,self.budget,self.path=state,state['budget'],folder.abspath
+        self.fd=None
+        self.budget.charge(1024)
+        fd=os.open(self.path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:
+            value=os.fstat(fd)
+            _need(stat.S_ISDIR(value.st_mode) and value.st_uid==os.geteuid() and
+                  value.st_mode & 0o022==0,'capture_sandbox_owner')
+            self.stamp=_sandbox_stamp(value)
+            _need(self.stamp==state['stamp'],'capture_sandbox_changed')
+            self.fd=fd
+            self.check()
+        except BaseException as error:
+            self.fd=None;_capture_close(fd,error,self.state);raise
+
+    def check(self):
+        from .native_actor import _need
+        self.budget.charge(1024)
+        _need(_sandbox_stamp(os.fstat(self.fd))==self.stamp and
+              _sandbox_stamp(os.stat(self.path,follow_symlinks=False))==self.stamp,
+              'capture_sandbox_changed')
+
+    def identity(self,name):
+        self.check()
+        try:value=os.stat(name,dir_fd=self.fd,follow_symlinks=False)
+        except FileNotFoundError:self.check();return None
+        self.check()
+        return value
+
+    def absent(self):
+        from .native_actor import _need
+        for name in (_CAPTURE_TARGET,_CAPTURE_TEMP):
+            _need(self.identity(name) is None,'capture_namespace_uncertain')
+
+    def same(self,candidate):
+        from .native_actor import _need
+        self.budget.charge(8*16385)
+        self.check()
+        fd=os.open(_CAPTURE_TARGET,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=self.fd)
+        primary=None
+        try:
+            value=os.fstat(fd)
+            _need(stat.S_ISREG(value.st_mode) and value.st_nlink==1 and value.st_uid==os.geteuid()
+                  and value.st_mode & 0o022==0 and value.st_size<=16384,'capture_candidate_file')
+            stamp=_sandbox_stamp(value)
+            _need(self.state['owned'].get(_CAPTURE_TARGET)==(value.st_dev,value.st_ino),
+                  'capture_candidate_unknown')
+            raw=os.read(fd,16385)
+            _need(raw==candidate and os.read(fd,1)==b'','capture_candidate_changed')
+            named=self.identity(_CAPTURE_TARGET);after=os.fstat(fd)
+            _need(named is not None and _sandbox_stamp(named)==stamp==_sandbox_stamp(after)
+                  and after.st_size==value.st_size and after.st_mtime_ns==value.st_mtime_ns
+                  and after.st_ctime_ns==value.st_ctime_ns,'capture_candidate_changed')
+        except BaseException as error:
+            primary=error;raise
+        finally:_capture_close(fd,primary,self.state)
+        _need(self.identity(_CAPTURE_TEMP) is None,'capture_temporary_uncertain')
+        self.check()
+
+    def publish(self,candidate):
+        from .native_actor import _need
+        self.absent()
+        _need(not self.state.get('created'),'capture_previous_unconfirmed')
+        self.budget.charge(8*(len(candidate)+1)+4096)
+        self.check()
+        fd=os.open(_CAPTURE_TARGET,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd)
+        self.state['created']=True
+        self.state['confirmed']=False
+        primary=None
+        try:
+            value=os.fstat(fd);self.state['owned'][_CAPTURE_TARGET]=(value.st_dev,value.st_ino)
+            _need(stat.S_ISREG(value.st_mode) and value.st_uid==os.geteuid() and value.st_nlink==1,
+                  'capture_candidate_owner')
+            offset=0
+            while offset<len(candidate):
+                self.check();written=os.write(fd,memoryview(candidate)[offset:])
+                _need(written>0,'capture_partial_write');offset+=written
+            os.fsync(fd)
+            self.check()
+            os.fsync(self.fd)
+        except BaseException as error:
+            primary=error;raise
+        finally:_capture_close(fd,primary,self.state)
+
+    def close(self):
+        fd,self.fd=self.fd,None
+        if fd is not None:os.close(fd)
 
 
 class QCLExecutionCalculation(CalcJob):
@@ -127,9 +240,10 @@ class QCLExecutionCalculation(CalcJob):
             return info
         from aiida.common.links import LinkType
         from .native_actor import MAX_FILE, _Reads, _related, _need
-        budget = _Reads(8*1024*1024)
+        state=self._native_capture_state
+        budget=state['budget']
+        budget.charge(8*(MAX_FILE+1))
         with folder.open("_aiidasubmit.sh","rb") as stream:
-            budget.charge(8*(MAX_FILE+1))
             raw = stream.read(MAX_FILE+1)
         _need(len(raw)<=MAX_FILE,"submit_script_bound")
         query = orm.QueryBuilder().append(orm.CalcJobNode,filters={"uuid":self.node.uuid},tag="calc")
@@ -141,8 +255,85 @@ class QCLExecutionCalculation(CalcJob):
             self.out("native_submit_script",script)
             self.update_outputs()  # public genuine CREATE; original failure retained
         script = _related(self.node,LinkType.CREATE,"native_submit_script",budget,outgoing=True)
-        _need(budget.file(script)==raw,"submit_script_conflict")
+        _need(budget.file(script,role="submit_script")==raw,"submit_script_conflict")
+        self._native_capture_gate(folder,raw)
         return info
+
+    def _native_capture_gate(self,folder,raw_script):
+        from .native_actor import _load_original,_need
+        from .capture_spec import native_capture_spec
+        from qcl_negf_contracts.messages import decode
+        state=self._native_capture_state;budget=state['budget']
+        guard=_CaptureSandbox(folder,state)
+        primary=None;optional_error=None;confirmed=False
+        try:
+            if not state['eligible']:
+                guard.absent()
+                return
+            # Mandatory real graph/CREATE errors never enter optional publication.
+            budget.cache.clear()
+            calc,code,launch,raw_native,original_script=_load_original(self.node.uuid,budget)
+            _need(calc.uuid==self.node.uuid and code.uuid==self.inputs.code.uuid and
+                  original_script==raw_script and launch['execution_id']==self.inputs.execution_id.value and
+                  launch['transport_attempt']==self.inputs.attempt.value,'capture_original_identity')
+            raw_plan=budget.file(self.inputs.plan,role='plan')
+            _need(launch['files']['plan']==dict(bytes=len(raw_plan),sha256=hashlib.sha256(raw_plan).hexdigest()),
+                  'capture_original_plan')
+            try:
+                budget.charge(8*(len(raw_plan)+16385))
+                token=None if state['candidate'] is None else json.loads(state['candidate'])['capture_token']
+                candidate=native_capture_spec(raw_plan,decode(raw_plan,maximum=1024*1024),
+                    calcjob_uuid=self.node.uuid,run_uuid=launch['run_uuid'],execution_id=launch['execution_id'],
+                    attempt=launch['transport_attempt'],capture_token=token)
+                _need(candidate is not None,'capture_candidate_ineligible')
+            except Exception as error:
+                optional_error=error
+                try:
+                    _need(not state.get('created'),'capture_postcreate_unconfirmed')
+                    guard.absent()
+                except BaseException as cleanup:
+                    error.add_note('capture generation/namespace unavailable: '+type(cleanup).__name__)
+                    raise error
+                return
+            if state['candidate'] is not None:
+                _need(candidate==state['candidate'],'capture_candidate_stale')
+            else:state['candidate']=candidate
+            if guard.identity(_CAPTURE_TARGET) is not None:
+                _need(state.get('confirmed'),'capture_candidate_unconfirmed')
+                guard.same(candidate)
+                confirmed=True
+                return
+            try:
+                guard.publish(candidate)
+                guard.same(candidate)
+                confirmed=True
+            except BaseException as error:
+                optional_error=error
+                if not isinstance(error,Exception) or state.get('close_uncertain'):raise
+                try:
+                    if state.get('created'):
+                        # No destructive fallback. A created inode can continue
+                        # only after complete same-object bytes and defined close.
+                        guard.same(candidate)
+                        confirmed=True
+                    else:guard.absent()
+                except BaseException as proof:
+                    error.add_note('capture candidate/namespace unavailable: '+type(proof).__name__)
+                    raise error
+            guard.check()
+        except BaseException as error:
+            primary=error
+            raise
+        finally:
+            try:guard.close()
+            except BaseException as cleanup:
+                state['close_uncertain']=True
+                original=primary if primary is not None else optional_error
+                if original is None:raise
+                original.add_note('capture sandbox close failed: '+type(cleanup).__name__)
+                if primary is None:raise original
+            else:
+                if confirmed:state['confirmed']=True
 
     def _prepare_native(self, folder):
         from .native_actor import (_Reads, MAX_METADATA, NativeActorUnavailable,
@@ -157,7 +348,18 @@ class QCLExecutionCalculation(CalcJob):
             jobs_root = validate_scratch_root(os.environ.get("QCL_NEGF_NATIVE_JOBS_ROOT"))
         except ValueError as error:
             raise NativeActorUnavailable("native_output_mapping_unavailable") from error
-        budget = _Reads(MAX_METADATA)
+        state=getattr(self,"_native_capture_state",None)
+        if state is None or state['path']!=folder.abspath:
+            value=os.stat(folder.abspath,follow_symlinks=False)
+            _need(stat.S_ISDIR(value.st_mode) and value.st_uid==os.geteuid() and value.st_mode & 0o022==0,
+                  "capture_sandbox_owner")
+            state=dict(path=folder.abspath,stamp=_sandbox_stamp(value),budget=_Reads(MAX_METADATA),
+                       candidate=None,owned={})
+            self._native_capture_state=state
+        _need(not state.get('close_uncertain'),'capture_previous_close_uncertain')
+        _need(not state.get('created') or state.get('confirmed'),'capture_previous_unconfirmed')
+        budget=state['budget']
+        budget.cache.clear()  # Fresh full original bytes, without refund/reset.
         native, plan, raws = _validate_native_inputs(self.inputs.plan, self.inputs.source_graph,
             self.inputs.native_execution, self.inputs.code, self.inputs.execution_id.value, budget)
         validate_plan(plan)
@@ -188,13 +390,18 @@ class QCLExecutionCalculation(CalcJob):
             code.cmdline_params.extend(["--scratch-root", validate_scratch_root(self.inputs.scratch_root.value)])
         code.stdout_name, code.stderr_name, code.withmpi = "solver.stdout", "solver.stderr", False
         info = CalcInfo()
+        from .capture_spec import native_capture_eligible
+        eligible=native_capture_eligible(raws[0],plan,execution_id=self.inputs.execution_id.value,
+            attempt=self.inputs.attempt.value,scratch_root=self.inputs.scratch_root.value if "scratch_root" in self.inputs else None)
+        if 'eligible' in state:_need(state['eligible']==eligible,"capture_eligibility_changed")
+        state['eligible']=eligible
         info.prepend_text = (
             "/run/current-system/sw/bin/qcl-negf-release guard --release-id " + shlex.quote(self.inputs.release_id.value)
             + " --solver-executable " + shlex.quote(str(self.inputs.code.filepath_executable))
-            + " || exit 78\nunset QCL_NEGF_CAPTURE_SPEC")
+            + " || exit 78\n" + (_CAPTURE_EXPORT if eligible else "unset QCL_NEGF_CAPTURE_SPEC"))
         info.codes_info = [code]
         # Stock presubmit adds its two scheduler logs. Q1 still gates all gets.
-        info.retrieve_list = ["series_result.json", "native-selection.json", "native-close.json"]
+        info.retrieve_list = ["series_result.json", "native-selection.json", "native-close.json", "performance-source.json"]
         return info
 
     def _prepare_for_submission(self, folder):

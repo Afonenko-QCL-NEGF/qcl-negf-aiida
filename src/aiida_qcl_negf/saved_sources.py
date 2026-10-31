@@ -1028,13 +1028,38 @@ def _native_epoch(invocation):
 
 
 def _native_origin_script(raw,child,args):
-    """Join original literal argv operands; protected script/writer is Root's gate."""
+    """Closed stock seven-line body joined to immutable original Code/native argv."""
     try:
-        lines=raw.decode('utf-8').splitlines()
-        commands=[line for line in lines if 'run-plan' in line]
-        if len(commands)!=1:raise ValueError()
-        words=shlex.split(commands[0]);native=args['execution_binding']
-        output=words[3]
+        if type(raw) is not bytes or len(raw)>65536:raise ValueError()
+        lines=[line for line in raw.decode('utf-8').splitlines() if line]
+        if not lines or lines.pop(0) not in ('#!/bin/bash','#!/run/current-system/sw/bin/bash'):
+            raise ValueError()
+        headers={}
+        allowed={'--no-requeue','--job-name','--get-user-env','--output','--error','--nodes',
+                 '--ntasks-per-node','--cpus-per-task','--partition','--account','--qos','--time','--mem'}
+        while lines and lines[0].startswith('#SBATCH '):
+            key,sep,value=lines.pop(0)[len('#SBATCH '):].partition('=')
+            if key not in allowed or key in headers:raise ValueError()
+            headers[key]=value
+            if key in ('--no-requeue','--get-user-env'):
+                if sep:raise ValueError()
+            elif key=='--job-name':
+                if re.fullmatch(r'"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"',value) is None:raise ValueError()
+            elif key in ('--partition','--account','--qos'):
+                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}',value) is None:raise ValueError()
+            elif key=='--time':
+                if re.fullmatch(r'(?:[0-9]+-)?[0-9]{2}:[0-5][0-9]:[0-5][0-9]',value) is None:raise ValueError()
+            elif key=='--mem':
+                if re.fullmatch(r'[0-9]+',value) is None:raise ValueError()
+        if (headers.get('--no-requeue')!='' or '--job-name' not in headers or
+                headers.get('--output')!='_scheduler-stdout.txt' or headers.get('--error')!='_scheduler-stderr.txt' or
+                headers.get('--nodes')!='1' or headers.get('--ntasks-per-node')!='1' or
+                re.fullmatch(r'[1-9][0-9]*',headers.get('--cpus-per-task','')) is None):raise ValueError()
+        if len(lines)!=7 or lines[0]!='# ENVIRONMENT VARIABLES BEGIN ###' or lines[3]!='# ENVIRONMENT VARIABLES END ###':
+            raise ValueError()
+        if set(lines[1:3])!={"export JULIA_NUM_THREADS='"+headers['--cpus-per-task']+"'", "export OPENBLAS_NUM_THREADS='1'"}:
+            raise ValueError()
+        native=args['execution_binding'];words=shlex.split(lines[6]);output=words[3]
         _absolute(output)
         if not output.endswith('/'+native['storage']['relative_execution_root']):raise ValueError()
         argv=[native['code']['solver_executable'],'run-plan','plan.json',output,'--execution-id',
@@ -1044,7 +1069,8 @@ def _native_origin_script(raw,child,args):
         expected=' '.join(map(literal,argv))+"  > 'solver.stdout' 2> 'solver.stderr'"
         guard=('/run/current-system/sw/bin/qcl-negf-release guard --release-id '+shlex.quote(native['code']['release_id'])+
             ' --solver-executable '+shlex.quote(native['code']['solver_executable'])+' || exit 78')
-        if commands[0]!=expected or lines.count(guard)!=1 or lines.count('unset QCL_NEGF_CAPTURE_SPEC')!=1:raise ValueError()
+        capability='export QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json'
+        if lines[4]!=guard or lines[5] not in ('unset QCL_NEGF_CAPTURE_SPEC',capability) or lines[6]!=expected:raise ValueError()
     except (ValueError,IndexError,UnicodeError):
         _fail('source_identity_mismatch','native_original_script_argv')
 

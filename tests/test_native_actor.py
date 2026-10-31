@@ -346,11 +346,11 @@ def test_native_presubmit_genuine_create_original_script_and_repeat(native_graph
     # remains a separate Root check; actual presubmit/ORM APIs are exercised.
     monkeypatch.setattr(orm.Computer,"get_scheduler",lambda self:SlurmScheduler())
     monkeypatch.setenv("QCL_NEGF_NATIVE_JOBS_ROOT","/srv/qcl-negf/jobs")
-    process=instantiate_process(get_manager().get_runner(),QCLExecutionCalculation,
+    process=QCLExecutionCalculation(runner=get_manager().get_runner(),parent_pid=f['restart'].pk,inputs=dict(
         code=f["code"],plan=f["plan"],source_graph=f["graph"],native_execution=f["native"],
-        execution_id=orm.Str(f["execution"]["execution_id"]),attempt=orm.Int(7),
-        release_id=orm.Str(f["execution"]["code"]["release_id"]),
-        metadata={"options":scheduler_options({})})
+        execution_id=f["calc"].inputs.execution_id,attempt=f["calc"].inputs.attempt,
+        release_id=f["calc"].inputs.release_id,
+        metadata={"options":scheduler_options({})}))
     try:
         with SandboxFolder() as folder:
             info=process.presubmit(folder)
@@ -367,7 +367,7 @@ def test_native_presubmit_genuine_create_original_script_and_repeat(native_graph
             command=next(line for line in original.decode().splitlines() if "run-plan" in line)
             words=shlex.split(command)
             assert words[0]==str(f["code"].filepath_executable) and words[1:12]==expected
-            assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","native-close.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
+            assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","native-close.json","performance-source.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
         with SandboxFolder() as second:
             process.presubmit(second)
             assert process.node.outputs.native_submit_script.uuid==script.uuid
@@ -380,10 +380,10 @@ def test_native_presubmit_store_primary_failure_precedes_any_submit(native_graph
     f=native_graph
     monkeypatch.setattr(orm.Computer,"get_scheduler",lambda self:SlurmScheduler())
     monkeypatch.setenv("QCL_NEGF_NATIVE_JOBS_ROOT","/srv/qcl-negf/jobs")
-    process=instantiate_process(get_manager().get_runner(),QCLExecutionCalculation,
+    process=QCLExecutionCalculation(runner=get_manager().get_runner(),parent_pid=f['restart'].pk,inputs=dict(
         code=f["code"],plan=f["plan"],source_graph=f["graph"],native_execution=f["native"],
-        execution_id=orm.Str(f["execution"]["execution_id"]),
-        release_id=orm.Str(f["execution"]["code"]["release_id"]),metadata={"options":scheduler_options({})})
+        execution_id=f["calc"].inputs.execution_id,attempt=f["calc"].inputs.attempt,
+        release_id=f["calc"].inputs.release_id,metadata={"options":scheduler_options({})}))
     original=OSError("synthetic CREATE storage failure")
     monkeypatch.setattr(process,"update_outputs",lambda:(_ for _ in ()).throw(original))
     try:

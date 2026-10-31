@@ -447,14 +447,7 @@ def mapped_source(f, *, creator=None, native_uuid=None, script_transform=None, s
     for key in ('diagnostics','observations'):
         f['source'][key].update(replacements[f['source'][key]['path']])
     f['result']['attempt_history']=deepcopy(f['result']['points'])
-    solver=str(creator.inputs.code.filepath_executable)
-    output='/srv/qcl-negf/jobs/'+json.loads(creator.inputs.native_execution.get_content())['storage']['relative_execution_root']
-    words=[solver,'run-plan','plan.json',output,'--execution-id',creator.inputs.execution_id.value,'--source-graph','source-graph.json',
-        '--native-execution','native-execution.json','--native-calcjob-uuid',creator.uuid]
-    literal=lambda s:"'"+s.replace("'", "'\"'\"'")+"'"
-    script=("#!/bin/bash\n/run/current-system/sw/bin/qcl-negf-release guard --release-id "+creator.inputs.release_id.value+
-        ' --solver-executable '+solver+' || exit 78\nunset QCL_NEGF_CAPTURE_SPEC\n'+
-        ' '.join(map(literal,words))+"  > 'solver.stdout' 2> 'solver.stderr'\n").encode()
+    script=origin_stock_script(json.loads(creator.inputs.native_execution.get_content()),creator.uuid)
     if script_transform is not None:script=script_transform(script)
     node=orm.SinglefileData(file=io.BytesIO(script),filename='_aiidasubmit.sh')
     if script_link=='create':node.base.links.add_incoming(creator,LinkType.CREATE,'native_submit_script')
@@ -770,12 +763,7 @@ def b_metadata_graph(f,raw_plan,*,raw_graph=None,graph_alias=False,native_paddin
     child.base.links.add_incoming(restart,LinkType.CALL_CALC,'metadata')
     for name,node in inputs.items():child.base.links.add_incoming(node,LinkType.INPUT_CALC,name)
     child.store()
-    solver=str(code.filepath_executable);output='/srv/qcl-negf/jobs/'+declaration['storage']['relative_execution_root']
-    argv=[solver,'run-plan','plan.json',output,'--execution-id',declaration['execution_id'],'--source-graph','source-graph.json',
-        '--native-execution','native-execution.json','--native-calcjob-uuid',child.uuid]
-    q=lambda word:"'"+word.replace("'","'\"'\"'")+"'"
-    script_raw=("#!/bin/bash\n/run/current-system/sw/bin/qcl-negf-release guard --release-id "+release.value+
-        ' --solver-executable '+solver+" || exit 78\nunset QCL_NEGF_CAPTURE_SPEC\n"+' '.join(map(q,argv))+"  > 'solver.stdout' 2> 'solver.stderr'\n").encode()
+    script_raw=origin_stock_script(declaration,child.uuid)
     script=blob(script_raw);script.base.links.add_incoming(child,LinkType.CREATE,'native_submit_script');script.store()
     return dict(child=child,run=run,restart=restart,plan=plan,graph=graph,native=native,raw_plan=raw_plan,raw_graph=raw_graph,
         raw_native=raw_native,script=script,script_raw=script_raw,declaration=declaration)
@@ -1403,3 +1391,36 @@ def test_real_B_A_cancel_preserves_primary_after_secondary_transport_close(q1t_p
         assert ledger.failed and len(p.calls)==1 and all(not t.is_open for t in p.transports)
         assert sum(entry[1] for entry in ledger.reservations)==saved_sources._NATIVE_METADATA-ledger.metadata
     assert set(p.calc.outputs)=={"native_submit_script","retrieved"}
+
+
+def origin_stock_script(native,calcjob_uuid,*,capture=False):
+    import shlex
+    literal=lambda word:"'"+word.replace("'", "'\"'\"'")+"'"
+    solver=native['code']['solver_executable']
+    argv=[solver,'run-plan','plan.json','/srv/qcl-negf/jobs/'+native['storage']['relative_execution_root'],
+        '--execution-id',native['execution_id'],'--source-graph','source-graph.json',
+        '--native-execution','native-execution.json','--native-calcjob-uuid',calcjob_uuid]
+    guard='/run/current-system/sw/bin/qcl-negf-release guard --release-id '+shlex.quote(native['code']['release_id'])+' --solver-executable '+shlex.quote(solver)+' || exit 78'
+    capability=('export QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json' if capture else 'unset QCL_NEGF_CAPTURE_SPEC')
+    return ('#!/bin/bash\n#SBATCH --no-requeue\n#SBATCH --job-name="aiida-1"\n#SBATCH --output=_scheduler-stdout.txt\n#SBATCH --error=_scheduler-stderr.txt\n#SBATCH --nodes=1\n#SBATCH --ntasks-per-node=1\n#SBATCH --cpus-per-task=1\n\n# ENVIRONMENT VARIABLES BEGIN ###\nexport JULIA_NUM_THREADS=\'1\'\nexport OPENBLAS_NUM_THREADS=\'1\'\n# ENVIRONMENT VARIABLES END ###\n'+guard+'\n'+capability+'\n'+' '.join(map(literal,argv))+"  > 'solver.stdout' 2> 'solver.stderr'\n").encode()
+
+
+@pytest.mark.parametrize('capture',[False,True])
+@pytest.mark.parametrize('fault',['extra_printf','extra_export','one_export','alias_path','duplicate','missing','counter_alias','substitution','header','env','shebang'])
+def test_native_origin_full_stock_grammar_refuses_leftovers(capture,fault):
+    from types import SimpleNamespace
+    native=SEED['execution_binding'];child=SimpleNamespace(uuid='00000000-0000-4000-8000-000000000007')
+    args=dict(execution_binding=native,selection=dict(execution_id=native['execution_id']))
+    raw=origin_stock_script(native,child.uuid,capture=capture)
+    if fault=='extra_printf':raw+=b'printf secret\n'
+    elif fault=='extra_export':raw+=b'export EXTRA=1\n'
+    elif fault=='one_export':raw=raw.replace(b'unset QCL_NEGF_CAPTURE_SPEC',b'export QCL_NEGF_CAPTURE_SPEC=capture-spec.json') if not capture else raw.replace(b' QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json',b'')
+    elif fault=='alias_path':raw=raw.replace(b'capture-spec.json',b'other.json') if capture else raw.replace(b'unset QCL_NEGF_CAPTURE_SPEC',b'unset QCL_NEGF_NATIVE_CAPTURE_INPUT')
+    elif fault=='duplicate':raw+=b'unset QCL_NEGF_CAPTURE_SPEC\n'
+    elif fault=='missing':raw=raw.replace(b'unset QCL_NEGF_CAPTURE_SPEC',b'') if not capture else raw.replace(b'export QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json',b'')
+    elif fault=='counter_alias':raw=raw.replace(b"  > 'solver.stdout'",b" '--attempt' '7'  > 'solver.stdout'")
+    elif fault=='substitution':raw=raw.replace(b"'run-plan'",b'$(printf run-plan)')
+    elif fault=='header':raw=raw.replace(b'#SBATCH --nodes=1',b'#SBATCH --nodes=2')
+    elif fault=='env':raw=raw.replace(b"export OPENBLAS_NUM_THREADS='1'",b"export OPENBLAS_NUM_THREADS='2'")
+    elif fault=='shebang':raw=raw.replace(b'#!/bin/bash',b'#!/bin/sh')
+    with pytest.raises(saved_sources.SourceError):saved_sources._native_origin_script(raw,child,args)
