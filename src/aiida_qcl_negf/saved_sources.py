@@ -920,11 +920,19 @@ def _native_file(node, ledger, *, maximum=65536):
     if not isinstance(node, orm.SinglefileData) or not node.is_stored:
         _fail('source_identity_mismatch', 'stored_native_singlefile_required')
     ledger.reserve('original ORM file handle/size',metadata=8192)
-    with node.open(mode='rb') as stream:
+    context=node.open(mode='rb');stream=context.__enter__();primary=None
+    try:
         stream.seek(0,2);size=stream.tell()
         if size>maximum:_fail('budget_exceeded','native_file_bound')
         ledger.reserve('original ORM file/decoded workspace',metadata=8*(size+1),io=size+1)
         stream.seek(0);raw=stream.read(size+1)
+    except BaseException as error:
+        primary=error;raise
+    finally:
+        try:context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
+        except BaseException as cleanup:
+            if primary is None:raise
+            primary.add_note('native original repository close failed: '+type(cleanup).__name__)
     if len(raw)!=size: _fail('budget_exceeded', 'native_file_bound')
     return raw
 
@@ -1279,11 +1287,19 @@ def _native_result(child, ledger):
     maximum=min(1024*1024,ledger.metadata//8)
     if maximum<1:_fail('budget_exceeded','native_result_workspace')
     ledger.reserve('retrieved result handle/size',metadata=8192)
-    with retained.base.repository.open('series_result.json','rb') as stream:
+    context=retained.base.repository.open('series_result.json','rb');stream=context.__enter__();primary=None
+    try:
         stream.seek(0,2);size=stream.tell()
         if size>maximum:_fail('budget_exceeded','native_result_bound')
         ledger.reserve('original retrieved result/workspace',metadata=8*(size+1),io=size+1)
         stream.seek(0);raw=stream.read(size+1)
+    except BaseException as error:
+        primary=error;raise
+    finally:
+        try:context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
+        except BaseException as cleanup:
+            if primary is None:raise
+            primary.add_note('native retrieved repository close failed: '+type(cleanup).__name__)
     if len(raw)!=size:_fail('budget_exceeded','native_result_bound')
     return raw
 

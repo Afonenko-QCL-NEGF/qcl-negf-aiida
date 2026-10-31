@@ -687,3 +687,46 @@ def test_unknown_input_role_refuses_before_orm(monkeypatch):
     monkeypatch.setattr(module,"_orm",lambda:pytest.fail("unknown role opened ORM"))
     with pytest.raises(module.NativeActorUnavailable,match="input_file_role"):
         module._Reads(8388608).file(None,role="unknown")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('primary_type',[KeyboardInterrupt,SystemExit])
+def test_T4_original_four_file_cancel_survives_secondary_context_close(native_graph,monkeypatch,primary_type):
+    from contextlib import contextmanager
+    module=actor();primary=primary_type('original four cancellation')
+    @contextmanager
+    def failed_open(self,*a,**k):
+        class Stream:
+            def read(self,size):raise primary
+        try:yield Stream()
+        finally:raise OSError('original input secondary close')
+    monkeypatch.setattr(orm.SinglefileData,'open',failed_open)
+    with pytest.raises(primary_type) as caught:module._Reads(16<<20).file(native_graph['plan'],role='plan')
+    assert caught.value is primary and any('original input repository close' in note for note in primary.__notes__)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('signal_name',['KillInterruption','PauseInterruption'])
+@pytest.mark.parametrize('port',['load_native_launch','read_native_execution','read_native_origin_inputs','read_native_performance_inputs','native_calcjob_uuid'])
+def test_T4_repair_public_actor_preserves_true_process_signal(native_graph,monkeypatch,signal_name,port):
+    from contextlib import contextmanager
+    from plumpy import process_states
+    module=actor();f=native_graph;primary=getattr(process_states,signal_name)('true actor signal');hits=[]
+    @contextmanager
+    def failed_open(node,*a,**k):
+        class Stream:
+            def read(self,size):hits.append('read');raise primary
+        try:yield Stream()
+        finally:hits.append('secondary_close');raise OSError('actor secondary close')
+    monkeypatch.setattr(orm.SinglefileData,'open',failed_open)
+    if port=='native_calcjob_uuid':
+        def lookup(*a,**k):hits.append('lookup');raise primary
+        monkeypatch.setattr(module,'_lookup',lookup)
+        call=lambda:getattr(module,port)(computer_uuid=f['calc'].computer.uuid,job_id='321',maximum_metadata_bytes=16<<20)
+    else:
+        args=dict(maximum_metadata_bytes=16<<20)
+        if port=='read_native_origin_inputs':args['source_epoch']='c1-'+f['calc'].uuid.replace('-','')+'-'+f['native'].uuid.replace('-','')+'-1'
+        call=lambda:getattr(module,port)(f['calc'].uuid,**args)
+    with pytest.raises(type(primary)) as caught:call()
+    assert caught.value is primary
+    assert hits==(['lookup'] if port=='native_calcjob_uuid' else ['read','secondary_close'])

@@ -26,7 +26,7 @@ from jsonschema import ValidationError
 from aiida.schedulers.plugins.slurm import SlurmScheduler
 from aiida.schedulers.datastructures import JobState
 from aiida.transports.plugins.local import LocalTransport
-from plumpy.process_states import PauseInterruption
+from plumpy.process_states import KillInterruption, PauseInterruption
 from qcl_negf_contracts.messages import decode, encode
 from qcl_negf_contracts import schema_validator
 from qcl_negf_contracts.outward import validate_outward_result
@@ -165,7 +165,8 @@ class NativeLocalTransport(LocalTransport):
                     start_new_session=True)
                 buffers = {"stdout":bytearray(), "stderr":bytearray()}
                 offset = 0
-                with selectors.DefaultSelector() as selector:
+                selector=selectors.DefaultSelector();selector_primary=None
+                try:
                     for stream, name in ((proc.stdout,"stdout"),(proc.stderr,"stderr")):
                         os.set_blocking(stream.fileno(),False)
                         selector.register(stream,selectors.EVENT_READ,name)
@@ -195,6 +196,13 @@ class NativeLocalTransport(LocalTransport):
                                     if sum(map(len,buffers.values())) + len(chunk) > _OUTPUT_BYTES:
                                         raise ValueError("native adapter output bound")
                                     buffers[key.data].extend(chunk)
+                except BaseException as error:
+                    selector_primary=error;raise
+                finally:
+                    try:selector.close()
+                    except BaseException as cleanup:
+                        if selector_primary is None:raise
+                        selector_primary.add_note('native command selector close failed: '+type(cleanup).__name__)
                 while _owned_command(proc) is None:
                     budget.before()
                     remaining = until-time.monotonic()
@@ -213,7 +221,7 @@ class NativeLocalTransport(LocalTransport):
                     raise PauseInterruption("native attempt HOLD: command_outcome_unknown") from primary
                 raise primary
             if cleanup is not None:
-                if not isinstance(cleanup,Exception):
+                if not isinstance(cleanup,Exception) or isinstance(cleanup,(KillInterruption,PauseInterruption)):
                     raise cleanup
                 raise PauseInterruption("native attempt HOLD: command_cleanup_unknown") from cleanup
             budget.before()
@@ -394,14 +402,18 @@ class _Tree:
     """Finite no-follow directory handles; a path/FD alone grants no access."""
     def __init__(self, root, budget):
         self.root,self.budget,self.ancestors,self.fd = _absolute(root),budget,[],None
-        self.bindings = {};self.absent = set();self.technical_fd = None
+        self.bindings = {};self.absent = set();self.technical_fd = None;self.held = {}
         try:
             budget.file();budget.before(512)
             self.fd = os.open("/",os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
             for part in Path(self.root).parts[1:]:
                 budget.file();budget.before(512)
                 child = os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=self.fd)
-                self.ancestors.append((self.fd,part,_signature(os.fstat(child))))
+                try:self.ancestors.append((self.fd,part,_signature(os.fstat(child))))
+                except BaseException as primary:
+                    try:os.close(child)
+                    except BaseException as cleanup:primary.add_note('source child FD cleanup failed: '+type(cleanup).__name__)
+                    raise
                 self.fd = child
             info = os.fstat(self.fd)
             if info.st_uid != os.geteuid() or info.st_mode & 0o022:
@@ -434,6 +446,10 @@ class _Tree:
             self.budget.file()
             if _signature(os.fstat(self.technical_fd)) != self.bindings[native_actor.TECHNICAL_FILE]:
                 _hold("q1_file_changed")
+        for name,fd in self.held.items():
+            self.budget.file()
+            if _signature(os.fstat(fd)) != self.bindings[name]:
+                _hold("q1_file_changed")
         for name in self.absent:
             self.budget.file()
             try:
@@ -442,7 +458,7 @@ class _Tree:
                 continue
             _hold("q1_absence_changed")
 
-    def read(self,name,cap,expected=None,*,optional=False):
+    def read(self,name,cap,expected=None,*,optional=False,hold=False):
         _relative(name)
         if optional and name != native_actor.TECHNICAL_FILE:
             _hold("q1_leaf_required")
@@ -485,6 +501,8 @@ class _Tree:
             self.bindings[name] = _signature(before)
             if optional and self.technical_fd is None:
                 self.technical_fd,fd = fd,None
+            if hold and name not in self.held:
+                self.held[name],fd = fd,None
             self.check()
             return raw
         except BaseException as error:
@@ -501,8 +519,8 @@ class _Tree:
 
     def close(self):
         failure = None
-        descriptors = ([self.technical_fd] if self.technical_fd is not None else []) + ([self.fd] if self.fd is not None else []) + [p for p,_,_ in self.ancestors]
-        self.technical_fd,self.fd,self.ancestors = None,None,[]
+        descriptors = list(self.held.values()) + ([self.technical_fd] if self.technical_fd is not None else []) + ([self.fd] if self.fd is not None else []) + [p for p,_,_ in self.ancestors]
+        self.technical_fd,self.fd,self.ancestors,self.held = None,None,[],{}
         for fd in descriptors:
             try:
                 os.close(fd)
@@ -515,13 +533,21 @@ class _Tree:
 
 def _proc_bytes(path,budget,cap=65536):
     budget.file();raw=bytearray()
-    with open(path,"rb") as stream:
+    context=open(path,"rb");stream=context.__enter__();primary=None
+    try:
         while len(raw)<=cap:
             count=min(4096,cap+1-len(raw));budget.before(8*count);budget.io(count)
             chunk=stream.read(count)
             if not chunk:
                 break
             raw.extend(chunk)
+    except BaseException as error:
+        primary=error;raise
+    finally:
+        try:context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
+        except BaseException as cleanup:
+            if primary is None:raise
+            primary.add_note('native proc stream close failed: '+type(cleanup).__name__)
     if len(raw)>cap:
         _hold("q1_namespace_bound")
     return bytes(raw)
@@ -576,7 +602,7 @@ def _json(raw,cap,budget):
 class _Packet:
     def __init__(self,transport,identifier,budget):
         self.transport,self.identifier,self.budget=transport,identifier,budget
-        self.trees=[];self.raw={};self.closed=False
+        self.trees=[];self.raw={};self.closed=False;self.performance_reads=[];self.performance_parents=[]
         try:
             # Prepay the initial public lookup cap in full. After observing its
             # actual four FILES, use the existing P2 actor envelope for the two
@@ -590,7 +616,7 @@ class _Packet:
             if (set(counts)!=set(limits) or
                     any(type(n) is not int or not 0<=n<=limits[role] for role,n in counts.items())):
                 _hold("q1_actor_input_bound")
-            self.actor_cap=30*16384+8*sum(min(limits[role]+1,4096*((n+4095)//4096)+4096)
+            self.actor_cap=1024+30*16384+8*sum(min(limits[role]+1,4096*((n+4095)//4096)+4096)
                                        for role,n in counts.items())
             budget.before(2*self.actor_cap)
             original=native_actor.read_native_execution(identifier,maximum_metadata_bytes=self.actor_cap)
@@ -706,6 +732,14 @@ class _Packet:
             if native_actor.load_native_launch(self.identifier,maximum_metadata_bytes=self.actor_cap)!=self.launch:
                 _hold("q1_actor_changed")
             self.check(technical=True)
+            for tree,name,cap,raw in self.performance_reads:
+                tree.read(name,cap,raw,hold=True)
+            for identifier,launch,raw_native,cap in self.performance_parents:
+                self.budget.before(2*cap)
+                fresh=native_actor.load_native_launch(identifier,maximum_metadata_bytes=cap)
+                fresh_native=native_actor.read_native_execution(identifier,maximum_metadata_bytes=cap)
+                if fresh!=launch or fresh_native!=raw_native:_hold("q1_performance_parent_changed")
+            self.check()
         except BaseException as error:
             primary=error
         self._release(primary)
@@ -803,22 +837,123 @@ def _selected(packet):
     return tuple(output)
 
 
+def _performance(packet):
+    """Qualify every asserted root in the one closed packet; no path escapes it."""
+    from aiida.common.links import LinkType
+    from qcl_negf_contracts.telemetry import (validate_performance_source_index,
+        validate_performance_source_pointer)
+    raw=packet.raw.get(native_actor.TECHNICAL_FILE)
+    if raw is None:return dict(raw_index=None,root_mappings=())
+    budget=packet.budget
+    index=validate_performance_source_index(_json(raw,native_actor.TECHNICAL_LIMIT,budget))
+    expected=dict(run_uuid=packet.launch['run_uuid'],execution_id=packet.launch['execution_id'],
+        attempt=packet.launch['transport_attempt'],calcjob_uuid=packet.identifier)
+    if not index['closed'] or index['provider_selection']!=expected:
+        _hold('q1_performance_provider')
+    fixed=dict(storage=packet.native['storage'],area='native_execution',relative_path='performance')
+    if index['technical']['root']!=fixed:_hold('q1_performance_transaction_root')
+    origins=[(packet.native['storage'],packet.root,packet.launch['remote_workdir'])]
+    visited={packet.identifier};child=packet.identifier
+    mappings=[]
+
+    def original(storage):
+        nonlocal child
+        for candidate,root,work in origins:
+            if storage==candidate:return root,work
+        # A foreign storage assertion needs the actual bounded INPUT parent ->
+        # unique CREATE chain. Neither a shared suffix nor an embedded UUID is
+        # sufficient to add a root to this RO namespace.
+        while len(visited)<=16:
+            budget.before(16384);calc=native_actor._orm().load_node(child)
+            binding=native_actor._related(calc,LinkType.INPUT_CALC,'parent_binding',budget.reads)
+            if not isinstance(binding,native_actor._orm().SinglefileData) or not binding.is_stored:
+                _hold('q1_performance_parent_binding_type')
+            parent=native_actor._related(binding,LinkType.CREATE,'native_binding',budget.reads)
+            if parent.uuid in visited:_hold('q1_performance_parent_cycle')
+            visited.add(parent.uuid)
+            launch,native_raw=native_actor._load(parent.uuid,budget.reads.remaining,budget=budget.reads)
+            native=_json(native_raw,native_actor.MAX_FILE,budget)
+            limits=dict(plan=native_actor.MAX_PLAN,source_graph=native_actor.MAX_FILE,native_execution=native_actor.MAX_FILE,submit_script=native_actor.MAX_FILE)
+            cap=1024+30*16384+8*sum(min(limits[role]+1,4096*((claim['bytes']+4095)//4096)+4096) for role,claim in launch['files'].items())
+            budget.before(2048)
+            packet.performance_parents.append((parent.uuid,launch,native_raw,cap))
+            jobs=_absolute(os.environ.get('QCL_NEGF_NATIVE_JOBS_ROOT',''))
+            parent_root=str(Path(jobs)/native['storage']['relative_execution_root'])
+            work=launch['remote_workdir']
+            if (native['storage']['computer_uuid']!=packet.native['storage']['computer_uuid'] or
+                    not work.startswith(jobs+'/') or parent_root==work or parent_root.startswith(work+'/') or work.startswith(parent_root+'/')):
+                _hold('q1_performance_parent_domain')
+            origins.append((native['storage'],parent_root,launch['remote_workdir']));child=parent.uuid
+            if storage==native['storage']:return parent_root,launch['remote_workdir']
+        _hold('q1_performance_parent_bound')
+
+    def mapping(descriptor):
+        for before,path in mappings:
+            if before==descriptor:return path
+        result,work=original(descriptor['storage'])
+        area=descriptor['area']
+        if area not in ('native_execution','native_workdir'):_hold('q1_performance_area')
+        parts=_relative(descriptor['relative_path'],dot=True)
+        path=Path(result if area=='native_execution' else work).joinpath(*parts)
+        namespace=_namespace(str(path),budget)
+        if namespace!=packet.namespace:_hold('q1_performance_namespace')
+        budget.before(2048+8*len(str(path)))
+        tree=_Tree(str(path),budget);packet.trees.append(tree)
+        packet.namespaces[str(path)]=namespace
+        mappings.append((deepcopy(descriptor),path))
+        return path
+
+    def read(root,reference,expected_raw=None,cap=native_actor.TECHNICAL_LIMIT):
+        parts=_relative(reference['path']);directory=root.joinpath(*parts[:-1])
+        existing=next((t for t in packet.trees if t.root==str(directory)),None)
+        if existing is None:
+            namespace=_namespace(str(directory),budget)
+            if namespace!=packet.namespace:_hold('q1_performance_namespace')
+            existing=_Tree(str(directory),budget);packet.trees.append(existing)
+            packet.namespaces[str(directory)]=namespace
+        data=existing.read(parts[-1],cap,expected_raw,hold=True)
+        if (str(len(data))!=reference['bytes'] or hashlib.sha256(data).hexdigest()!=reference['sha256']):
+            _hold('q1_performance_reference')
+        budget.before(512+2*len(data))
+        packet.performance_reads.append((existing,parts[-1],cap,data))
+        return data
+
+    technical=mapping(fixed)
+    reference=dict(path='sources/'+hashlib.sha256(raw).hexdigest()+'.json',bytes=str(len(raw)),
+        sha256=hashlib.sha256(raw).hexdigest(),schema=index['schema'],media_type='application/json')
+    read(technical,reference,raw)
+    tree=next(t for t in packet.trees if t.root==str(technical))
+    pointer_raw=tree.read('current-source.json',65536,hold=True)
+    packet.performance_reads.append((tree,'current-source.json',65536,pointer_raw))
+    pointer=validate_performance_source_pointer(_json(pointer_raw,65536,budget))
+    if pointer['index']!=reference:_hold('q1_performance_pointer')
+    for entry in index['entries']:
+        for role in ('runner_anchor_root','scientific_root','technical_root','canonical_plan_root'):
+            mapping(entry[role])
+        read(mapping(entry['runner_anchor_root']),entry['runner_anchor_ref'],entry['runner_anchor_utf8'].encode())
+    packet.check(technical=True)
+    return dict(raw_index=raw,root_mappings=tuple(mappings))
+
+
 def open_native_selected_sources(calcjob_uuid: str, *, maximum_metadata_bytes: int,
-                                 maximum_io_bytes: int) -> ContextManager[tuple[
-                                     bytes,tuple[tuple[Path,dict,dict,dict],...],None]]:
+                                 maximum_io_bytes: int, include_performance: bool=False) -> ContextManager[tuple[
+                                     bytes,tuple[tuple[Path,dict,dict,dict],...],dict|None]]:
     """Current qualified native bytes; no origin/scientific verdict or lease.
 
     The loaded-profile owner must close its public Results readers and finish
     this context successfully before registering any output. Paths must not
-    escape this lifetime. Retained original creator proof remains the B owner.
+    escape this lifetime. Default third is None; literal opt-in returns only
+    raw_index/root_mappings inside this same packet. Retained original creator
+    proof remains the B/T4 owner.
     """
+    if type(include_performance) is not bool:raise ValueError("literal include_performance bool required")
     native_actor._uuid(calcjob_uuid)
     budget=_Operation(maximum_metadata_bytes,maximum_io_bytes)
-    return _selected_context(calcjob_uuid,budget)
+    return _selected_context(calcjob_uuid,budget,include_performance=include_performance)
 
 
 @contextmanager
-def _selected_context(calcjob_uuid,budget):
+def _selected_context(calcjob_uuid,budget,*,include_performance=False):
     budget.before(16384)
     orm=native_actor._orm();calc=orm.load_node(calcjob_uuid)
     if not isinstance(calc,orm.CalcJobNode) or not calc.is_stored:
@@ -838,9 +973,10 @@ def _selected_context(calcjob_uuid,budget):
                 budget.io(sum(len(raw)+1 for raw in packet.raw.values()))
                 native_actor._retrieved_packet(calcjob_uuid,packet.raw,budget.reads,technical_control=packet.technical_control)
                 sources=_selected(packet)
+                performance=_performance(packet) if include_performance else None
                 packet.check(technical=True)
                 yielded=True
-                yield packet.raw["series_result.json"],sources,None
+                yield packet.raw["series_result.json"],sources,performance
             except BaseException as error:
                 primary=error
                 raise

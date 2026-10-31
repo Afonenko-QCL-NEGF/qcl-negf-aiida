@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import sys
 from uuid import UUID
+from plumpy.process_states import KillInterruption, PauseInterruption
 
 from qcl_negf_contracts.messages import decode, encode, scientific_plan
 
@@ -106,7 +107,8 @@ class _Reads:
             size = min(4096, limit + 1)
             self.charge(8 * size)
             raw = bytearray()
-            with node.open(mode="rb") as stream:
+            context=node.open(mode="rb");stream=context.__enter__();primary=None
+            try:
                 while len(raw) <= limit:
                     chunk = stream.read(size)
                     if not chunk:
@@ -116,6 +118,14 @@ class _Reads:
                         break
                     size = min(4096, limit + 1 - len(raw))
                     self.charge(8 * size)
+            except BaseException as error:
+                primary=error;raise
+            finally:
+                try:
+                    context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
+                except BaseException as cleanup:
+                    if primary is None:raise
+                    primary.add_note('original input repository close failed: '+type(cleanup).__name__)
             _need(len(raw) <= limit, "input_file_bound")
             self.charge(0)
             self.cache[node.uuid] = bytes(raw)
@@ -280,13 +290,14 @@ def _load_original(calcjob_uuid, budget):
         relative_execution_root=native["storage"]["relative_execution_root"],
         files={name:dict(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest()) for name,raw in
                zip(("plan","source_graph","native_execution","submit_script"),(*raws,raw_script))})
-    return calc, code, launch, raws[2], raw_script
+    budget.charge(1024)
+    return calc, code, launch, raws[2], raw_script, (plan_node,graph_node,native_node,script), (*raws,raw_script)
 
 
 def _load(calcjob_uuid, maximum_metadata_bytes, *, budget=None):
     orm = _orm()
     budget = _Reads(maximum_metadata_bytes) if budget is None else budget
-    calc, code, launch, raw_native, _ = _load_original(calcjob_uuid, budget)
+    calc, code, launch, raw_native, _, _, _ = _load_original(calcjob_uuid, budget)
     _reviewed_options(code,calc.get_options())
     _need(calc.get_option("submit_script_filename") == "_aiidasubmit.sh", "submit_filename")
     workdir, job_id = _path(calc.get_remote_workdir()), calc.get_job_id()
@@ -301,7 +312,7 @@ def load_native_launch(calcjob_uuid: str, *, maximum_metadata_bytes: int) -> dic
     """Read actual typed graph; result alone grants no native admission."""
     try:
         return _load(calcjob_uuid, maximum_metadata_bytes)[0]
-    except NativeActorUnavailable:
+    except (NativeActorUnavailable,KillInterruption,PauseInterruption):
         raise
     except Exception as error:
         raise NativeActorUnavailable("actor_input_unavailable") from error
@@ -311,7 +322,7 @@ def read_native_execution(calcjob_uuid: str, *, maximum_metadata_bytes: int) -> 
     """Return original INPUT file bytes, without newline/reencoding."""
     try:
         return _load(calcjob_uuid, maximum_metadata_bytes)[1]
-    except NativeActorUnavailable:
+    except (NativeActorUnavailable,KillInterruption,PauseInterruption):
         raise
     except Exception as error:
         raise NativeActorUnavailable("actor_input_unavailable") from error
@@ -332,15 +343,33 @@ def read_native_origin_inputs(calcjob_uuid: str, *, source_epoch: str,
         match = re.fullmatch(r"c1-([0-9a-f]{32})-([0-9a-f]{32})-(0|[1-9][0-9]{0,19})", source_epoch)
         _need(match is not None and int(match[3]) <= 18446744073709551615, "native_origin_epoch")
         _need(match[1] == calcjob_uuid.replace("-", ""), "native_origin_calcjob")
-        calc, _, launch, raw_native, raw_script = _load_original(calcjob_uuid, budget)
+        calc, _, launch, raw_native, raw_script, _, _ = _load_original(calcjob_uuid, budget)
         _need(match[1] == calc.uuid.replace("-", "") and
               match[2] == launch["native_execution_uuid"].replace("-", ""), "native_origin_inputs")
         budget.charge(0)
         return raw_native, raw_script
-    except NativeActorUnavailable:
+    except (NativeActorUnavailable,KillInterruption,PauseInterruption):
         raise
     except Exception as error:
         raise NativeActorUnavailable("actor_origin_unavailable") from error
+
+
+def read_native_performance_inputs(calcjob_uuid: str, *, maximum_metadata_bytes: int) -> tuple[dict,dict,tuple[bytes,bytes,bytes,bytes]]:
+    """Whole actual INPUT/CALL/CREATE operands; no runtime path or access authority."""
+    try:
+        budget=_Reads(maximum_metadata_bytes)
+        calc,_,launch,_,_,nodes,raw4=_load_original(calcjob_uuid,budget)
+        _need(type(launch['transport_attempt']) is int and
+              1<=launch['transport_attempt']<=9007199254740991,'performance_provider_attempt')
+        budget.charge(8192+sum(2*len(raw) for raw in raw4))
+        pins={name:dict(node_uuid=node.uuid,bytes=str(len(raw)),sha256=hashlib.sha256(raw).hexdigest())
+              for name,node,raw in zip(('plan','source_graph','native_execution','submit_script'),nodes,raw4)}
+        selection=dict(run_uuid=launch['run_uuid'],execution_id=launch['execution_id'],
+                       attempt=launch['transport_attempt'],calcjob_uuid=calc.uuid)
+        budget.charge(0)
+        return selection,pins,raw4
+    except (NativeActorUnavailable,KillInterruption,PauseInterruption):raise
+    except Exception as error:raise NativeActorUnavailable('actor_performance_originals_unavailable') from error
 
 
 def native_calcjob_uuid(*, computer_uuid: str, remote_workdir: str | None = None,
@@ -349,7 +378,7 @@ def native_calcjob_uuid(*, computer_uuid: str, remote_workdir: str | None = None
     try:
         budget = _Reads(maximum_metadata_bytes)
         return _lookup(computer_uuid,remote_workdir,job_id,budget)
-    except NativeActorUnavailable:
+    except (NativeActorUnavailable,KillInterruption,PauseInterruption):
         raise
     except Exception as error:
         raise NativeActorUnavailable("actor_lookup_unavailable") from error
@@ -393,7 +422,8 @@ def _retrieved_packet(calcjob_uuid, expected, budget, *, technical_control):
     result = {}
     for name in selected_names:
         size = len(expected[name]); raw = bytearray()
-        with repository.open(name, mode="rb") as stream:
+        context=repository.open(name,mode="rb");stream=context.__enter__();primary=None
+        try:
             while len(raw) <= size:
                 count = min(4096, size + 1 - len(raw))
                 budget.charge(8 * count)
@@ -401,6 +431,13 @@ def _retrieved_packet(calcjob_uuid, expected, budget, *, technical_control):
                 if not chunk:
                     break
                 raw.extend(chunk)
+        except BaseException as error:
+            primary=error;raise
+        finally:
+            try:context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
+            except BaseException as cleanup:
+                if primary is None:raise
+                primary.add_note('retrieved packet repository close failed: '+type(cleanup).__name__)
         budget.charge(len(raw))
         _need(bytes(raw) == expected[name], "retrieved_packet_changed")
         result[name] = bytes(raw)

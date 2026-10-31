@@ -162,6 +162,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.output("prior_archive", valid_type=orm.FolderData, required=False)
         spec.output("selection", valid_type=orm.Dict, required=False)
         spec.output("performance_binding", valid_type=orm.SinglefileData, required=False)
+        spec.output("performance_source", valid_type=orm.SinglefileData, required=False)
         spec.exit_code(300, "ERROR_MISSING_RESULT", message="The solver did not write its scientific result")
         spec.exit_code(301, "ERROR_INVALID_RESULT", message="Scientific result is malformed or does not match its input")
         spec.exit_code(302, "ERROR_SCIENTIFIC_FAILURE", message="The solver reported scientific failure or incomplete execution")
@@ -171,6 +172,22 @@ class QCLExecutionCalculation(CalcJob):
         spec.exit_code(305, "ERROR_INVALID_RECOVERY", message="Recovery or pause receipt is missing, corrupt or incompatible")
 
     def parse_retrieved_output(self, retrieved_temporary_folder: str | None = None) -> ExitCode | None:
+        exit_code=self._parse_scientific_retrieved_output(retrieved_temporary_folder)
+        if 'native_execution' in self.inputs:
+            from .performance_binding import publish_native_performance
+            from plumpy.process_states import KillInterruption
+            try:
+                publish_native_performance(self)
+            except KillInterruption:
+                raise
+            except Exception as error:
+                # Optional observability cannot replace the scientific result.
+                # Cancellation/BaseException and reader/FD cleanup still unwind
+                # the owner before any later successful output can be made.
+                self.logger.warning('Native performance source unavailable: %s',error)
+        return exit_code
+
+    def _parse_scientific_retrieved_output(self, retrieved_temporary_folder: str | None = None) -> ExitCode | None:
         if "source_graph" not in self.inputs and "native_execution" not in self.inputs:
             return super().parse_retrieved_output(retrieved_temporary_folder)
         from .saved_sources import (_native_operation, _native_pin, _native_related,
@@ -189,10 +206,18 @@ class QCLExecutionCalculation(CalcJob):
                 for name in ('result','native_binding'):
                     node=self.outputs[name]
                     ledger.reserve('pending output repository copy/readback',metadata=8192)
-                    with node.open(mode='rb') as stream:
+                    context=node.open(mode='rb');stream=context.__enter__();primary=None
+                    try:
                         stream.seek(0,2);size=stream.tell()
                         ledger.reserve('pending output exact bytes',metadata=8*(size+1),io=size+1)
                         stream.seek(0);raw=stream.read(size+1)
+                    except BaseException as error:
+                        primary=error;raise
+                    finally:
+                        try:context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
+                        except BaseException as cleanup:
+                            if primary is None:raise
+                            primary.add_note('pending output repository close failed: '+type(cleanup).__name__)
                     if len(raw)!=size:_fail('source_identity_mismatch','native_pending_output_changed')
                     expected[name]=_native_pin(node,raw)
                 self.update_outputs()
@@ -272,7 +297,7 @@ class QCLExecutionCalculation(CalcJob):
                 return
             # Mandatory real graph/CREATE errors never enter optional publication.
             budget.cache.clear()
-            calc,code,launch,raw_native,original_script=_load_original(self.node.uuid,budget)
+            calc,code,launch,raw_native,original_script,_,_=_load_original(self.node.uuid,budget)
             _need(calc.uuid==self.node.uuid and code.uuid==self.inputs.code.uuid and
                   original_script==raw_script and launch['execution_id']==self.inputs.execution_id.value and
                   launch['transport_attempt']==self.inputs.attempt.value,'capture_original_identity')
