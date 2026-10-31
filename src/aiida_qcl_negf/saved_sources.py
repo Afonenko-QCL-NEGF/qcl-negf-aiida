@@ -1318,9 +1318,9 @@ def _load_native_binding_inputs_with_ledger(child,raw_result,ledger):
     snapshot={};args=_native_inputs(child,ledger,snapshot=snapshot)
     result=validate_outward_result(_native_decode(raw_result,1024*1024,ledger,'outward result decoding'))
     rows=result['points']+result.get('attempt_history',[])
-    ledger.reserve('A selected access full lifetime',metadata=8*1024*1024,io=64*1024*1024)
+    ledger.reserve('A selected access full lifetime',metadata=16*1024*1024,io=64*1024*1024)
     contexts=[];context_rows=[];proofs=[];missing=[];origin_cache={}
-    with open_native_selected_sources(child.uuid,maximum_metadata_bytes=8*1024*1024,maximum_io_bytes=64*1024*1024) as (original,sources,technical):
+    with open_native_selected_sources(child.uuid,maximum_metadata_bytes=16*1024*1024,maximum_io_bytes=64*1024*1024) as (original,sources,technical):
         if original!=raw_result or technical is not None:_fail('source_identity_mismatch','native_access_result_or_technical')
         # First-seen selected root/StateRef order is mandatory; no digest search,
         # newest lookup or coverage loss. Relation is not a creator selector.
