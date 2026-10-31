@@ -20,10 +20,28 @@ from . import science_association as association
 
 MAX_FILE = 65536
 MAX_PLAN = 1024 * 1024
-MAX_METADATA = 8 * 1024 * 1024
+# Nonrefundable read workspace, separate from physical process RSS.
+MAX_METADATA = 16 * 1024 * 1024
 SCHEDULER = "qcl_negf.native_slurm"
 TRANSPORT = "qcl_negf.native_local"
 CONTROL_FILES = ("series_result.json", "native-selection.json", "native-close.json", "_scheduler-stdout.txt", "_scheduler-stderr.txt")
+TECHNICAL_FILE = "performance-source.json"
+TECHNICAL_LIMIT = 1024 * 1024
+
+
+def _technical_control(value):
+    """Closed operational observation; opaque bytes carry no scientific verdict."""
+    _need(type(value) is dict, "native_technical_control")
+    if value.get("status") == "present":
+        _need(set(value) == {"status","path","bytes","sha256"} and
+              type(value["bytes"]) is str and re.fullmatch(r"0|[1-9][0-9]{0,19}",value["bytes"]) is not None and
+              int(value["bytes"]) <= TECHNICAL_LIMIT and type(value["sha256"]) is str and
+              re.fullmatch(r"[0-9a-f]{64}",value["sha256"]) is not None, "native_technical_control")
+    else:
+        _need(set(value) == {"status","path","reason"} and value["status"] == "absent" and
+              value["reason"] == "not_published", "native_technical_control")
+    _need(value["path"] == TECHNICAL_FILE, "native_technical_control")
+    return value
 
 
 class NativeActorUnavailable(ValueError):
@@ -337,7 +355,7 @@ def native_calcjob_uuid(*, computer_uuid: str, remote_workdir: str | None = None
         raise NativeActorUnavailable("actor_lookup_unavailable") from error
 
 
-def _retrieved_packet(calcjob_uuid, expected, budget):
+def _retrieved_packet(calcjob_uuid, expected, budget, *, technical_control):
     """Actual CREATE/repository read; expected bytes never grant source access."""
     orm = _orm()
     from aiida.common.links import LinkType
@@ -346,6 +364,22 @@ def _retrieved_packet(calcjob_uuid, expected, budget):
         filters={"uuid": calcjob_uuid, "process_type": association._CALC_PROCESS}, project="*"))
     _need(len(rows) == 1 and rows[0].is_stored, "calcjob_unavailable")
     calc = rows[0]
+    observation = _technical_control(technical_control)
+    present = observation["status"] == "present"
+    packet_names = set(CONTROL_FILES) | ({TECHNICAL_FILE} if present else set())
+    _need(type(expected) is dict and set(expected) == packet_names and
+          all(type(raw) is bytes for raw in expected.values()), "retrieved_packet_membership")
+    if present:
+        raw = expected[TECHNICAL_FILE]
+        budget.charge(8*(len(raw)+1))
+        _need(len(raw) == int(observation["bytes"]) and
+              hashlib.sha256(raw).hexdigest() == observation["sha256"], "retrieved_packet_changed")
+    budget.charge(8192)
+    declared = calc.get_retrieve_list()
+    _need(type(declared) is list and len(declared) in (5,6) and
+          all(type(name) is str for name in declared) and len(set(declared)) == len(declared) and
+          set(declared) in (set(CONTROL_FILES),set(CONTROL_FILES)|{TECHNICAL_FILE}), "retrieved_declaration")
+    selected_names = (*CONTROL_FILES,TECHNICAL_FILE) if present and TECHNICAL_FILE in declared else CONTROL_FILES
     node = _related(calc, LinkType.CREATE, calc.link_label_retrieved, budget, outgoing=True)
     _need(isinstance(node, orm.FolderData) and node.is_stored, "original_retrieved_required")
     repository = node.base.repository
@@ -353,11 +387,11 @@ def _retrieved_packet(calcjob_uuid, expected, budget):
     names = []
     for entry in repository.list_objects():
         budget.charge(1024)
-        _need(len(names) < 5 and entry.is_file(), "retrieved_packet_membership")
+        _need(len(names) < len(selected_names) and entry.is_file(), "retrieved_packet_membership")
         names.append(entry.name)
-    _need(set(names) == set(CONTROL_FILES) == set(expected), "retrieved_packet_membership")
+    _need(set(names) == set(selected_names), "retrieved_packet_membership")
     result = {}
-    for name in CONTROL_FILES:
+    for name in selected_names:
         size = len(expected[name]); raw = bytearray()
         with repository.open(name, mode="rb") as stream:
             while len(raw) <= size:

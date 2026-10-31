@@ -39,14 +39,16 @@ def claim(name, raw):
     return dict(path=name, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
 
 
-def _execution_graph(f, identifier):
+def _execution_graph(f, identifier, *, plan_size=None):
     """Fresh actual typed graph; never rewrite stored original input links."""
     def retarget(value):
         if isinstance(value,dict):return {k:retarget(v) for k,v in value.items()}
         if isinstance(value,list):return [retarget(v) for v in value]
         return identifier if value=="execution" else value
     def blob(raw):return orm.SinglefileData(file=io.BytesIO(raw),filename="original.json")
-    raw_plan=encode(retarget(decode(f["raw_plan"])));plan=blob(raw_plan).store()
+    raw_plan=encode(retarget(decode(f["raw_plan"])))
+    if plan_size is not None:raw_plan += b" "*(plan_size-len(raw_plan))
+    plan=blob(raw_plan).store()
     native=blob(b"{}");declaration=deepcopy(f["execution"])
     declaration["execution_id"]=identifier
     declaration["input_plan"]=dict(node_uuid=plan.uuid,bytes=str(len(raw_plan)),sha256=hashlib.sha256(raw_plan).hexdigest())
@@ -69,8 +71,10 @@ def _execution_graph(f, identifier):
 
 @pytest.fixture
 def packet(native_graph, tmp_path, monkeypatch, request):
-    f=_execution_graph(native_graph,"exec") if getattr(request,"param",None)=="native5" else native_graph
-    calc=f["calc"];calc.set_job_id("321")
+    parameter=getattr(request,"param",None)
+    f=(_execution_graph(native_graph,"exec") if parameter=="native5" else
+       _execution_graph(native_graph,"execution",plan_size=113111) if parameter=="large_plan" else native_graph)
+    calc=f["calc"];calc.set_job_id("321");calc.set_retrieve_list(list(native_actor.CONTROL_FILES))
     jobs=tmp_path/"jobs";root=jobs/"native/new-domain";work=jobs/"upload/unique"
     root.mkdir(parents=True);work.mkdir(parents=True)
     calc.set_remote_workdir(str(work))
@@ -81,46 +85,58 @@ def packet(native_graph, tmp_path, monkeypatch, request):
          "native-selection.json":b' {"version":1,"selected_inputs":[]}\n',
          "_scheduler-stdout.txt":b"stock output\n", "_scheduler-stderr.txt":b""}
     calls=[];transports=[]
+    def technical():
+        data=raw.get("performance-source.json")
+        return (dict(status="absent",path="performance-source.json",reason="not_published") if data is None else
+                dict(status="present",path="performance-source.json",bytes=str(len(data)),sha256=hashlib.sha256(data).hexdigest()))
     def expected():
         value=reply(calc.uuid,"closed")
-        value.update(receipt_ref=calc.uuid+"/close.json",controls=[claim(k,raw[k]) for k in ("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")])
+        value.update(version=3,technical_control=technical(),receipt_ref=calc.uuid+"/close.json",controls=[claim(k,raw[k]) for k in ("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")])
         value["job"].update(node_name="worker",start_time="2026-10-29T00:00:00",worker_machine_id="c"*32,worker_boot_id="00000000-0000-4000-8000-000000000004")
         return canonical(value)
     class Protocol(native_backend.NativeLocalTransport):
         def exec_command_wait_bytes(self,command,stdin=None,workdir=None,**kwargs):
-            request=decode(stdin);calls.append(request)
+            request=decode(stdin)
             assert command=="/run/current-system/sw/bin/qcl-negf-native-attempt-client close"
+            assert set(request)=={"version","action","calcjob_uuid","launch","controls","technical_control"}
+            assert request["version"]==3 and request["technical_control"]==technical()
             assert request["action"]=="close" and request["calcjob_uuid"]==calc.uuid
             assert request["controls"]==decode(expected())["controls"]
             # Retain the production adapter command gross debit in this protocol
             # fixture; no real privileged client, Slurm or shell is executed.
-            self._native_operation.before(2*native_backend._OUTPUT_BYTES)
+            self._native_operation.calls += 1
+            assert self._native_operation.calls <= 64
+            self._native_operation.before(len(stdin)+2*native_backend._OUTPUT_BYTES)
+            calls.append(request)
             return 0,expected()+b"\n",b""
     def transport():
         t=Protocol(machine="localhost",native_computer_uuid=calc.computer.uuid);transports.append(t);return t
     monkeypatch.setattr(orm.AuthInfo,"get_transport",lambda self:transport())
     def write():
-        for name,data in raw.items():(root if name in ("series_result.json","native-selection.json") else work).joinpath(name).write_bytes(data)
+        for name,data in raw.items():(root if name in ("series_result.json","native-selection.json","performance-source.json") else work).joinpath(name).write_bytes(data)
     write()
-    def stored(extra=None, kind=LinkType.CREATE, creator=None):
+    def stored(extra=None, kind=LinkType.CREATE, creator=None, omit=(), replacements=None):
         node=orm.FolderData()
-        for name,data in dict(raw,**{"native-close.json":expected()}).items():
-            node.base.repository.put_object_from_filelike(io.BytesIO(data),name)
+        for name,data in dict(raw,**{"native-close.json":expected()},**(replacements or {})).items():
+            if name in omit:continue
+            if name!="performance-source.json" or name in calc.get_retrieve_list():
+                node.base.repository.put_object_from_filelike(io.BytesIO(data),name)
         if extra:node.base.repository.put_object_from_filelike(io.BytesIO(b"unexpected"),extra)
         node.base.links.add_incoming(creator or calc,kind,"retrieved");node.store();return node
     return SimpleNamespace(f=f,calc=calc,root=root,work=work,jobs=jobs,raw=raw,calls=calls,
-        transports=transports,transport=transport,stored=stored,expected=expected,write=write)
+        transports=transports,transport=transport,stored=stored,expected=expected,technical=technical,write=write)
 
 
 def test_A02_closed_reply_literal_claims_and_strict_job():
     identifier="00000000-0000-4000-8000-000000000003"
     claims=[claim(name,b"") for name in ("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")]
-    value=reply(identifier,"closed");value.update(receipt_ref=identifier+"/close.json",controls=claims)
+    technical=dict(status="absent",path="performance-source.json",reason="not_published")
+    value=reply(identifier,"closed");value.update(version=3,technical_control=technical,receipt_ref=identifier+"/close.json",controls=claims)
     value["job"].update(node_name="worker",start_time="2026-10-29T00:00:00",worker_machine_id="c"*32,worker_boot_id="00000000-0000-4000-8000-000000000004")
-    assert native_backend._reply(canonical(value),identifier,state="closed",controls=claims,job_id="321")==value["job"]
+    assert native_backend._reply(canonical(value),identifier,state="closed",controls=claims,technical_control=technical,job_id="321")==value["job"]
     for field,bad in (("receipt_ref",identifier+"/claim.json"),("state","started"),("version",True)):
         changed=deepcopy(value);changed[field]=bad
-        with pytest.raises(PauseInterruption):native_backend._reply(canonical(changed),identifier,state="closed",controls=claims,job_id="321")
+        with pytest.raises(PauseInterruption):native_backend._reply(canonical(changed),identifier,state="closed",controls=claims,technical_control=technical,job_id="321")
 
 
 @pytest.mark.parametrize("fault",["bool","string","order","extra","duplicate","selfhash"])
@@ -510,3 +526,308 @@ def test_F1_original_consumer_failure_survives_secondary_selector_mismatch(packe
             raise original
     assert caught.value is original
     assert any("close failed" in note for note in getattr(original,"__notes__",())),"secondary job/mount mismatch was not observed"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("data",[None,b"",b"opaque\x00\xff",b" \n{unparsed} \t",b"x"*65536],ids=["absent","empty","opaque","whitespace","64KiB"])
+@pytest.mark.parametrize("declared",[False,True])
+def test_Q1T_stock_optional_exact_bytes_and_actual_create(packet,tmp_path,data,declared):
+    """A skipped declared-present leaf or workdir source must fail this check."""
+    p=packet
+    if data is not None:p.raw["performance-source.json"]=data;p.write()
+    if declared:p.calc.set_retrieve_list([*native_actor.CONTROL_FILES,"performance-source.json"])
+    t=p.transport()
+    result=asyncio.run(retrieve_calculation(p.calc,t,str(tmp_path/"temporary")))
+    names=set(native_actor.CONTROL_FILES)|({"performance-source.json"} if declared and data is not None else set())
+    assert set(result.base.repository.list_object_names())==names
+    if "performance-source.json" in names:
+        with result.base.repository.open("performance-source.json",mode="rb") as stream:assert stream.read()==data
+    assert not (p.work/"performance-source.json").exists()
+    result.base.links.add_incoming(p.calc,LinkType.CREATE,"retrieved")
+    with native_backend.open_native_selected_sources(p.calc.uuid,maximum_metadata_bytes=native_actor.MAX_METADATA,maximum_io_bytes=2*1024*1024) as (_,sources,technical):
+        assert sources==() and technical is None
+    assert decode(p.expected())["technical_control"]==p.technical()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("method,arguments,keywords,ignored",[
+    ("get",(),{"ignore_nonexisting":True},True),
+    ("get",(True,True,True),{},True),
+    ("get",(True,True,False),{"ignore_nonexisting":True},True),
+    ("get",(True,True,True),{"ignore_nonexisting":False},False),
+    ("get",(),{},False),("getfile",(),{"ignore_nonexisting":True},False)])
+def test_Q1T_verified_missing_never_poisons_or_modifies_destination(packet,tmp_path,method,arguments,keywords,ignored):
+    p=packet;t=p.transport();destination=tmp_path/"foreign";destination.write_bytes(b"original")
+    with t:
+        operation=getattr(t,method)
+        if ignored:assert operation(str(p.work/"performance-source.json"),str(destination),*arguments,**keywords) is None
+        else:
+            with pytest.raises(FileNotFoundError):operation(str(p.work/"performance-source.json"),str(destination),*arguments,**keywords)
+        assert destination.read_bytes()==b"original" and t._q1_failure is None
+        t.get(str(p.work/"series_result.json"),str(tmp_path/"science"))
+        assert (tmp_path/"science").read_bytes()==p.raw["series_result.json"]
+    assert len(p.calls)==1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault",["omitted_requested","unrequested_sixth","extra","directory","raw_mismatch","duplicate","tuple","glob","absolute","alias","core_missing"])
+def test_Q1T_actual_declaration_and_create_membership_rejects(packet,fault):
+    p=packet;p.raw["performance-source.json"]=b"actual opaque";p.write()
+    declared=[*native_actor.CONTROL_FILES,"performance-source.json"]
+    if fault=="duplicate":declared.append("performance-source.json")
+    elif fault=="tuple":declared[-1]=["performance-source.json","",0]
+    elif fault=="glob":declared[-1]="performance*.json"
+    elif fault=="absolute":declared[-1]=str(p.work/"performance-source.json")
+    elif fault=="alias":declared[-1]="./performance-source.json"
+    elif fault=="core_missing":declared.remove("native-close.json")
+    elif fault=="unrequested_sixth":declared=list(native_actor.CONTROL_FILES)
+    p.calc.set_retrieve_list(declared)
+    if fault=="omitted_requested":p.stored(omit=("performance-source.json",))
+    elif fault=="unrequested_sixth":p.stored(extra="performance-source.json")
+    elif fault=="extra":p.stored(extra="unknown")
+    elif fault=="directory":p.stored(extra="subdir/unknown")
+    elif fault=="raw_mismatch":p.stored(replacements={"performance-source.json":b"changed"})
+    else:p.stored()
+    with pytest.raises((PauseInterruption,native_actor.NativeActorUnavailable)):
+        with native_backend.open_native_selected_sources(p.calc.uuid,maximum_metadata_bytes=8*1024*1024,maximum_io_bytes=2*1024*1024):pass
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault",["symlink","broken_symlink","fifo","hardlink","mode","oversize","permission","parent_removed"])
+def test_Q1T_optional_uncertainty_never_becomes_absence(packet,tmp_path,monkeypatch,fault):
+    p=packet;leaf=p.root/"performance-source.json"
+    if fault in ("symlink","broken_symlink"):leaf.symlink_to(p.root/("series_result.json" if fault=="symlink" else "missing"))
+    elif fault=="fifo":os.mkfifo(leaf)
+    elif fault=="parent_removed":p.root.rename(p.root.with_name("replaced"))
+    elif fault=="permission":
+        original=native_backend.os.open
+        def denied(name,*args,**kwargs):
+            if name=="performance-source.json":raise PermissionError("fixed leaf denied")
+            return original(name,*args,**kwargs)
+        monkeypatch.setattr(native_backend.os,"open",denied)
+    else:
+        leaf.write_bytes(b"x"*(1048577 if fault=="oversize" else 1))
+        if fault=="hardlink":os.link(leaf,p.root/"technical-alias")
+        elif fault=="mode":leaf.chmod(0o666)
+    destination=tmp_path/"copy";t=p.transport()
+    with t,pytest.raises((PauseInterruption,OSError)):
+        t.get(str(p.work/"performance-source.json"),str(destination),ignore_nonexisting=True)
+    assert not destination.exists() and p.calls==[]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("data",[None,b"opaque"],ids=["absent","present"])
+@pytest.mark.parametrize("when",["owner_close","delivery","final_close"])
+def test_Q1T_technical_mutation_prevents_late_success(packet,tmp_path,monkeypatch,data,when):
+    p=packet
+    if data is not None:p.raw["performance-source.json"]=data;p.write()
+    t=p.transport();destination=tmp_path/"copy"
+    def mutate():
+        leaf=p.root/"performance-source.json"
+        if data is None:leaf.symlink_to(p.root/"missing")
+        else:leaf.write_bytes(b"changed")
+    if when=="owner_close":
+        original=t.exec_command_wait_bytes
+        def execute(*args,**kwargs):
+            response=original(*args,**kwargs);mutate();return response
+        monkeypatch.setattr(t,"exec_command_wait_bytes",execute)
+    elif when=="delivery":
+        original=native_backend._deliver
+        def deliver(*args,**kwargs):original(*args,**kwargs);mutate()
+        monkeypatch.setattr(native_backend,"_deliver",deliver)
+    with pytest.raises(PauseInterruption):
+        with t:
+            t.get(str(p.work/"series_result.json"),str(destination))
+            if when=="final_close":mutate()
+    if when=="owner_close":assert not destination.exists()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("bad",[None,0,1,"true"])
+def test_Q1T_invalid_ignore_flag_refuses_before_close(packet,tmp_path,bad):
+    p=packet;t=p.transport()
+    with t,pytest.raises(PauseInterruption):t.get(str(p.work/"performance-source.json"),str(tmp_path/"copy"),ignore_nonexisting=bad)
+    assert p.calls==[] and not (tmp_path/"copy").exists()
+
+
+@pytest.mark.integration
+def test_Q1T_workdir_technical_is_never_a_fallback(packet,tmp_path):
+    p=packet;(p.work/"performance-source.json").write_bytes(b"foreign upload bytes")
+    t=p.transport();destination=tmp_path/"copy"
+    with t:assert t.get(str(p.work/"performance-source.json"),str(destination),ignore_nonexisting=True) is None
+    assert not destination.exists() and p.technical()["status"]=="absent"
+
+
+@pytest.mark.integration
+def test_Q1T_valid_individual_maximum_can_refuse_aggregate_before_close(packet,tmp_path):
+    p=packet;p.raw["performance-source.json"]=b"x"*1048576;p.write();t=p.transport()
+    t._q1_budget=native_backend._Operation(8*1024*1024)
+    with t,pytest.raises(PauseInterruption):t.get(str(p.work/"performance-source.json"),str(tmp_path/"copy"))
+    assert p.calls==[] and not (tmp_path/"copy").exists()
+
+
+@pytest.mark.integration
+def test_Q1T_held_technical_fd_and_cancel_unwind_preserve_primary(packet,tmp_path,monkeypatch):
+    p=packet;p.raw["performance-source.json"]=b"opaque";p.write();t=p.transport()
+    with t:
+        t.get(str(p.work/"series_result.json"),str(tmp_path/"copy"))
+        held=t._q1_packet.result.technical_fd
+        assert os.fstat(held).st_ino==(p.root/"performance-source.json").stat().st_ino
+    with pytest.raises(OSError):os.fstat(held)
+    t=p.transport();original=native_backend.os.read;cancellation=KeyboardInterrupt("technical cancelled");opened=[]
+    real_open=native_backend.os.open
+    def opening(name,*args,**kwargs):
+        fd=real_open(name,*args,**kwargs)
+        if name=="performance-source.json":opened.append(fd)
+        return fd
+    def reading(fd,*args):
+        if fd in opened:raise cancellation
+        return original(fd,*args)
+    monkeypatch.setattr(native_backend.os,"open",opening);monkeypatch.setattr(native_backend.os,"read",reading)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        with t:t.get(str(p.work/"series_result.json"),str(tmp_path/"cancelled"))
+    assert caught.value is cancellation and not (tmp_path/"cancelled").exists()
+    for fd in opened:
+        with pytest.raises(OSError):os.fstat(fd)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("size",[None,0,4096,32768,65536],ids=["absent","empty","4KiB","32KiB","64KiB"])
+@pytest.mark.parametrize("mode",["core5","optional","selected"])
+def test_Q1T_actual_operation_ledger_measurement(packet,tmp_path,record_property,monkeypatch,size,mode):
+    """Measured original ledger, including honest refusal at unchanged caps."""
+    p=packet;ledgers=[];debits=[];original=native_backend._Operation
+    def operation(*args,**kwargs):
+        budget=original(*args,**kwargs);ledgers.append(budget);charge=budget.reads.charge
+        def charged(amount):
+            debits.append((amount,budget.reads.remaining))
+            return charge(amount)
+        budget.reads.charge=charged
+        return budget
+    monkeypatch.setattr(native_backend,"_Operation",operation)
+    if size is not None:p.raw["performance-source.json"]=b"x"*size;p.write()
+    p.calc.set_retrieve_list([*native_actor.CONTROL_FILES,"performance-source.json"] if mode!="core5" else list(native_actor.CONTROL_FILES))
+    maximum=native_actor.MAX_METADATA
+    before=None;failure=None
+    try:
+        if mode=="selected":
+            p.stored()
+            with native_backend.open_native_selected_sources(p.calc.uuid,maximum_metadata_bytes=maximum,maximum_io_bytes=2*1024*1024):
+                before=ledgers[-1].reads.remaining
+        elif mode=="core5":
+            t=p.transport();close=t.close
+            def closing():
+                nonlocal before
+                before=t._q1_budget.reads.remaining
+                return close()
+            t.close=closing
+            asyncio.run(retrieve_calculation(p.calc,t,str(tmp_path/"temporary")))
+        else:
+            t=p.transport()
+            with t:
+                t.get(str(p.work/"performance-source.json"),str(tmp_path/"copy"),ignore_nonexisting=True)
+                before=ledgers[-1].reads.remaining
+    except PauseInterruption as error:
+        failure=error
+    budget=ledgers[-1]
+    expected_refusal=False
+    report=dict(mode=mode,technical_bytes=size,outcome="aggregate_refusal" if failure else "complete",
+                metadata_used_before_final_close=None if before is None else maximum-before,
+                metadata_used_final=maximum-budget.reads.remaining,
+                io_used=(2 if mode=="selected" else 8)*1024*1024-budget.io_remaining,
+                file_operations=budget.files,command_calls=budget.calls,protocol_close_calls=len(p.calls),deadline_seconds=90,
+                refused_debits=[dict(request=amount,remaining=available) for amount,available in debits if amount>available])
+    record_property("q1t_ledger",json.dumps(report,sort_keys=True))
+    assert (failure is not None)==expected_refusal and len(p.calls)==1
+    if expected_refusal:
+        assert "adapter_budget" in str(failure) and report["refused_debits"]
+    else:assert budget.reads.remaining>0 and budget.io_remaining>0
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault",["bool_status","nonzero_status","stderr","embedded_lf"])
+def test_Q1T_actual_command_operational_framing_refuses_before_copy(packet,tmp_path,monkeypatch,fault):
+    p=packet;t=p.transport();destination=tmp_path/"copy"
+    status,out,err=0,p.expected()+b"\n",b""
+    if fault=="bool_status":status=False
+    elif fault=="nonzero_status":status=1
+    elif fault=="stderr":err=b"untrusted"
+    else:out=p.expected()[:-1]+b"\n}\n"
+    monkeypatch.setattr(t,"exec_command_wait_bytes",lambda *a,**k:(status,out,err))
+    with t,pytest.raises(PauseInterruption):t.get(str(p.work/"series_result.json"),str(destination))
+    assert not destination.exists()
+
+
+@pytest.mark.integration
+def test_Q1T_initial_technical_mutation_refuses_before_close_command(packet,tmp_path,monkeypatch):
+    p=packet;p.raw["performance-source.json"]=b"initial";p.write();read=native_backend._Tree.read
+    def changed(tree,name,*args,**kwargs):
+        raw=read(tree,name,*args,**kwargs)
+        if name=="performance-source.json":(p.root/name).write_bytes(b"changed")
+        return raw
+    monkeypatch.setattr(native_backend._Tree,"read",changed)
+    t=p.transport()
+    with t,pytest.raises(PauseInterruption):t.get(str(p.work/"series_result.json"),str(tmp_path/"copy"))
+    assert p.calls==[] and not (tmp_path/"copy").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("failure",["mutation","fd_cleanup"])
+def test_Q1T_stock_retrieve_final_close_failure_never_returns_folder(packet,tmp_path,monkeypatch,failure):
+    p=packet;p.raw["performance-source.json"]=b"opaque";p.write()
+    p.calc.set_retrieve_list([*native_actor.CONTROL_FILES,"performance-source.json"])
+    t=p.transport();close=t.close;real_close=native_backend.os.close;failed=[]
+    def closing():
+        if failure=="mutation":(p.root/"performance-source.json").write_bytes(b"late writer")
+        else:
+            held=t._q1_packet.result.technical_fd
+            def cleanup(fd):
+                real_close(fd)
+                if fd==held:failed.append(fd);raise OSError("technical FD cleanup unknown")
+            monkeypatch.setattr(native_backend.os,"close",cleanup)
+        return close()
+    t.close=closing
+    with pytest.raises((PauseInterruption,OSError)):
+        asyncio.run(retrieve_calculation(p.calc,t,str(tmp_path/"temporary")))
+    assert not t.is_open and t._q1_packet is None
+    assert p.calc.base.links.get_outgoing(link_type=LinkType.CREATE,link_label_filter="retrieved").all()==[]
+    if failure=="fd_cleanup":assert len(failed)==1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("packet",[None,"large_plan"],indirect=True,ids=["small_plan","113111B_plan"])
+@pytest.mark.parametrize("mode",["core5","optional","selected"])
+def test_Q1T_default_complete_64KiB_with_original_roles(packet,tmp_path,monkeypatch,record_property,mode):
+    """Actual default completes required whole reads and original plan role."""
+    p=packet;allowance=native_actor.MAX_METADATA;budgets=[];costs=[];original=native_backend._Operation
+    def operation(*args,**kwargs):
+        budget=original(*args,**kwargs)
+        charge=budget.reads.charge
+        def charged(amount):
+            frame=inspect.currentframe().f_back
+            costs.append((frame.f_code.co_name,frame.f_lineno,amount))
+            return charge(amount)
+        budget.reads.charge=charged;budgets.append(budget)
+        return budget
+    monkeypatch.setattr(native_backend,"_Operation",operation)
+    p.raw["performance-source.json"]=b"x"*65536;p.write()
+    p.calc.set_retrieve_list([*native_actor.CONTROL_FILES,"performance-source.json"] if mode!="core5" else list(native_actor.CONTROL_FILES))
+    if mode=="selected":
+        p.stored()
+        with native_backend.open_native_selected_sources(p.calc.uuid,maximum_metadata_bytes=allowance,maximum_io_bytes=2*1024*1024) as (_,_,technical):assert technical is None
+    elif mode=="optional":
+        t=p.transport()
+        with t:t.get(str(p.work/"performance-source.json"),str(tmp_path/"copy"))
+        assert (tmp_path/"copy").read_bytes()==p.raw["performance-source.json"]
+    else:
+        result=asyncio.run(retrieve_calculation(p.calc,p.transport(),str(tmp_path/"temporary")))
+        assert set(result.base.repository.list_object_names())==set(native_actor.CONTROL_FILES)
+    budget=budgets[-1];groups={}
+    for function,line,amount in costs:
+        key=function+":"+str(line);groups[key]=groups.get(key,0)+amount
+    report=dict(mode=mode,plan_bytes=len(p.f["raw_plan"]),technical_bytes=65536,
+                default_metadata_allowance=allowance,metadata_used=allowance-budget.reads.remaining,
+                metadata_margin=budget.reads.remaining,io_used=(2 if mode=="selected" else 8)*1024*1024-budget.io_remaining,
+                file_operations=budget.files,command_calls=budget.calls,protocol_close_calls=len(p.calls),gross_debits=groups)
+    record_property("q1t_default",json.dumps(report,sort_keys=True))
+    assert budget.reads.remaining>0 and budget.io_remaining>0 and len(p.calls)==1

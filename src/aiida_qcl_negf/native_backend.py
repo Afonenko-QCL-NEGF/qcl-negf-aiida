@@ -44,14 +44,14 @@ def _hold(reason):
 
 
 class _Operation:
-    def __init__(self, maximum_metadata_bytes=8*1024*1024, maximum_io_bytes=8*1024*1024):
+    def __init__(self, maximum_metadata_bytes=native_actor.MAX_METADATA, maximum_io_bytes=8*1024*1024):
         native_actor._need(type(maximum_metadata_bytes) is int and maximum_metadata_bytes > 0 and
                            type(maximum_io_bytes) is int and maximum_io_bytes > 0, "adapter_budget")
         self.deadline = time.monotonic() + 90
         self.calls = 0
         self.files = 0
         self.io_remaining = maximum_io_bytes
-        self.reads = native_actor._Reads(min(maximum_metadata_bytes,8*1024*1024),before=self._deadline)
+        self.reads = native_actor._Reads(min(maximum_metadata_bytes,native_actor.MAX_METADATA),before=self._deadline)
 
     def _deadline(self):
         if time.monotonic() >= self.deadline:
@@ -220,7 +220,10 @@ class NativeLocalTransport(LocalTransport):
             return proc.returncode,*result
 
     def get(self, remotepath, localpath, *args, **kwargs):
-        self._get_control(remotepath, localpath)
+        ignore = kwargs.get("ignore_nonexisting",args[2] if len(args)>2 else False)
+        if type(ignore) is not bool:
+            _hold("q1_ignore_nonexisting")
+        return self._get_control(remotepath,localpath,ignore_nonexisting=ignore)
 
     def getfile(self, remotepath, localpath, *args, **kwargs):
         self._get_control(remotepath, localpath)
@@ -228,13 +231,13 @@ class NativeLocalTransport(LocalTransport):
     def gettree(self, remotepath, localpath, *args, **kwargs):
         _hold("q1_controls_unavailable")
 
-    def _get_control(self, remotepath, localpath):
+    def _get_control(self, remotepath, localpath, *, ignore_nonexisting=False):
         if not self.is_open or self._q1_failure is not None:
             _hold("q1_session_unavailable")
         remote = os.fspath(remotepath)
         native_actor._path(remote)
         leaf = Path(remote).name
-        if leaf not in native_actor.CONTROL_FILES:
+        if leaf not in (*native_actor.CONTROL_FILES,native_actor.TECHNICAL_FILE):
             _hold("q1_leaf_required")
         if self._q1_budget is None:
             self._q1_budget = self._native_operation or _Operation()
@@ -248,14 +251,20 @@ class NativeLocalTransport(LocalTransport):
                 packet = self._q1_packet
                 if remote != packet.launch["remote_workdir"] + "/" + leaf:
                     _hold("q1_session_target_changed")
-                packet.check()
-                _deliver(localpath,packet.raw[leaf],budget)
-                packet.check()
+                packet.check(technical=leaf == native_actor.TECHNICAL_FILE)
+                missing = leaf == native_actor.TECHNICAL_FILE and packet.technical_control["status"] == "absent"
+                if not missing:
+                    _deliver(localpath,packet.raw[leaf],budget)
+                packet.check(technical=leaf == native_actor.TECHNICAL_FILE)
         except BaseException as error:
             self._q1_failure = error
             if isinstance(error,(OSError,ValueError,KeyError,ValidationError)):
                 raise PauseInterruption("native attempt HOLD: q1_source_unavailable") from error
             raise
+        # Only this validated absence is an ordinary missing file. Keep it out
+        # of the session-poison catch so subsequent mandatory retrieval works.
+        if missing and not ignore_nonexisting:
+            raise FileNotFoundError(remote)
 
     def close(self):
         primary = None
@@ -295,10 +304,14 @@ class NativeLocalTransport(LocalTransport):
             return False
 
 
-def _reply(raw, calcjob_uuid, *, state, controls=None, job_id=None, budget=None):
+def _reply(raw, calcjob_uuid, *, state, controls=None, technical_control=None, job_id=None, budget=None):
     value = decode(raw,maximum=_OUTPUT_BYTES) if budget is None else _json(raw,_OUTPUT_BYTES,budget)
-    if (type(value) is not dict or set(value) != {"version","state","calcjob_uuid","receipt_ref","job","controls","reason"}
-            or type(value["version"]) is not int or value["version"] != 1
+    fields = {"version","state","calcjob_uuid","receipt_ref","job","controls","reason"}
+    if state == "closed":
+        fields.add("technical_control")
+        native_actor._technical_control(technical_control)
+    if (type(value) is not dict or set(value) != fields
+            or type(value["version"]) is not int or value["version"] != (3 if state == "closed" else 1)
             or value["calcjob_uuid"] != calcjob_uuid or value["state"] != state
             or value["reason"] is not None or value["controls"] != controls
             or type(value["receipt_ref"]) is not str or not 0 < len(value["receipt_ref"]) <= 256):
@@ -329,6 +342,9 @@ def _reply(raw, calcjob_uuid, *, state, controls=None, job_id=None, budget=None)
     if state in ("started","closed") and allocation[0] is None:
         _hold("native_allocation_unqualified")
     if state == "closed":
+        native_actor._technical_control(value["technical_control"])
+        if value["technical_control"] != technical_control or raw != encode(value):
+            _hold("native_close_unqualified")
         _claims(controls)
         _claims(value["controls"])
         if value["receipt_ref"] != calcjob_uuid + "/close.json" or job["job_id"] != job_id:
@@ -378,7 +394,7 @@ class _Tree:
     """Finite no-follow directory handles; a path/FD alone grants no access."""
     def __init__(self, root, budget):
         self.root,self.budget,self.ancestors,self.fd = _absolute(root),budget,[],None
-        self.bindings = {}
+        self.bindings = {};self.absent = set();self.technical_fd = None
         try:
             budget.file();budget.before(512)
             self.fd = os.open("/",os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
@@ -414,12 +430,37 @@ class _Tree:
             if _signature(os.stat(name,dir_fd=self.fd,follow_symlinks=False)) != before:
                 _hold("q1_file_changed")
 
-    def read(self,name,cap,expected=None):
+        if self.technical_fd is not None:
+            self.budget.file()
+            if _signature(os.fstat(self.technical_fd)) != self.bindings[native_actor.TECHNICAL_FILE]:
+                _hold("q1_file_changed")
+        for name in self.absent:
+            self.budget.file()
+            try:
+                os.stat(name,dir_fd=self.fd,follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            _hold("q1_absence_changed")
+
+    def read(self,name,cap,expected=None,*,optional=False):
         _relative(name)
+        if optional and name != native_actor.TECHNICAL_FILE:
+            _hold("q1_leaf_required")
         if "/" in name:
             _hold("q1_leaf_required")
         self.check();self.budget.file();self.budget.before(1024)
-        fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=self.fd)
+        try:
+            fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=self.fd)
+        except FileNotFoundError:
+            if not optional or name != native_actor.TECHNICAL_FILE:
+                raise
+            # ENOENT belongs solely to the fixed leaf open, after held-parent
+            # checks. lstat also detects a newly appeared broken symlink.
+            self.budget.before(512+2*len(name))
+            self.absent.add(name)
+            self.check()
+            return None
+        primary = None
         try:
             before = os.fstat(fd); size = before.st_size
             if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
@@ -442,15 +483,26 @@ class _Tree:
                 _hold("q1_file_changed")
             self.budget.before(512+2*len(name))
             self.bindings[name] = _signature(before)
+            if optional and self.technical_fd is None:
+                self.technical_fd,fd = fd,None
             self.check()
             return raw
+        except BaseException as error:
+            primary = error
+            raise
         finally:
-            os.close(fd)
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except BaseException as cleanup:
+                    if primary is None:
+                        raise
+                    primary.add_note("source file FD cleanup failed: "+type(cleanup).__name__)
 
     def close(self):
         failure = None
-        descriptors = ([self.fd] if self.fd is not None else []) + [p for p,_,_ in self.ancestors]
-        self.fd,self.ancestors = None,[]
+        descriptors = ([self.technical_fd] if self.technical_fd is not None else []) + ([self.fd] if self.fd is not None else []) + [p for p,_,_ in self.ancestors]
+        self.technical_fd,self.fd,self.ancestors = None,None,[]
         for fd in descriptors:
             try:
                 os.close(fd)
@@ -532,10 +584,14 @@ class _Packet:
             first_cap=budget.reads.remaining//4
             budget.before(first_cap)
             self.launch=native_actor.load_native_launch(identifier,maximum_metadata_bytes=first_cap)
-            counts=[row["bytes"] for row in self.launch["files"].values()]
-            if len(counts)!=4 or any(type(n) is not int or not 0<=n<=65536 for n in counts):
+            limits={"plan":native_actor.MAX_PLAN,"source_graph":native_actor.MAX_FILE,
+                    "native_execution":native_actor.MAX_FILE,"submit_script":native_actor.MAX_FILE}
+            counts={role:row["bytes"] for role,row in self.launch["files"].items()}
+            if (set(counts)!=set(limits) or
+                    any(type(n) is not int or not 0<=n<=limits[role] for role,n in counts.items())):
                 _hold("q1_actor_input_bound")
-            self.actor_cap=30*16384+8*sum(min(65537,4096*((n+4095)//4096)+4096) for n in counts)
+            self.actor_cap=30*16384+8*sum(min(limits[role]+1,4096*((n+4095)//4096)+4096)
+                                       for role,n in counts.items())
             budget.before(2*self.actor_cap)
             original=native_actor.read_native_execution(identifier,maximum_metadata_bytes=self.actor_cap)
             claim=self.launch["files"]["native_execution"]
@@ -567,13 +623,25 @@ class _Packet:
                 raw=tree.read(name,cap);self.raw[name]=raw
                 controls.append(dict(path=name,bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest()))
             _claims(controls)
+            self.result = result
+            technical = result.read(native_actor.TECHNICAL_FILE,native_actor.TECHNICAL_LIMIT,optional=True)
+            if technical is None:
+                self.technical_control = dict(status="absent",path=native_actor.TECHNICAL_FILE,reason="not_published")
+            else:
+                budget.before(512)
+                self.technical_control = dict(status="present",path=native_actor.TECHNICAL_FILE,
+                    bytes=str(len(technical)),sha256=hashlib.sha256(technical).hexdigest())
+                self.raw[native_actor.TECHNICAL_FILE] = technical
+            native_actor._technical_control(self.technical_control)
             budget.before(8*65536)
-            request=encode(dict(version=1,action="close",calcjob_uuid=identifier,launch=self.launch,controls=controls))
+            request=encode(dict(version=3,action="close",calcjob_uuid=identifier,launch=self.launch,controls=controls,technical_control=self.technical_control))
             if len(request)>65536:
                 _hold("native_request_bound")
             budget.io(len(request)+65537)
             self.check()
             status,out,err=transport.exec_command_wait_bytes(shlex.join([_CLIENT,"close"]),stdin=request)
+            if type(status) is not int or type(out) is not bytes or type(err) is not bytes:
+                _hold("native_close_outcome_unknown")
             budget.before(8*len(out))
             if (status!=0 or err or not out.endswith(b"\n") or out.endswith(b"\n\n") or len(out)>65537):
                 _hold("native_close_outcome_unknown")
@@ -582,23 +650,30 @@ class _Packet:
             # projection here or accept a file/caller dict instead of this call.
             if b"\n" in projection or not projection.startswith(b"{") or not projection.endswith(b"}"):
                 _hold("native_close_framing")
-            _reply(projection,identifier,state="closed",controls=controls,job_id=self.job_id,budget=budget)
+            _reply(projection,identifier,state="closed",controls=controls,technical_control=self.technical_control,job_id=self.job_id,budget=budget)
             self.check()
             for name,cap in zip(_CLAIM_LEAVES,_CEILINGS):
                 (result if name in _CLAIM_LEAVES[:2] else upload).read(name,cap,self.raw[name])
+            self._check_technical()
             self.raw["native-close.json"]=projection
             self.check();self.closed=True
         except BaseException as primary:
             self._release(primary)
             raise
 
-    def check(self):
+    def _check_technical(self):
+        self.result.read(native_actor.TECHNICAL_FILE,native_actor.TECHNICAL_LIMIT,
+            self.raw.get(native_actor.TECHNICAL_FILE),optional=True)
+
+    def check(self, *, technical=False):
         self.budget.before()
         for root,namespace in self.namespaces.items():
             if _namespace(root,self.budget)!=namespace:
                 _hold("q1_namespace_changed")
         for tree in self.trees:
             tree.check()
+        if self.closed and technical:
+            self._check_technical()
         # Launch12 deliberately omits the scheduler job selector. Query the
         # original CalcJob afresh, with its full metadata allowance prepaid,
         # rather than accepting a newly stable job from a later actor lookup.
@@ -630,7 +705,7 @@ class _Packet:
             self.check()
             if native_actor.load_native_launch(self.identifier,maximum_metadata_bytes=self.actor_cap)!=self.launch:
                 _hold("q1_actor_changed")
-            self.check()
+            self.check(technical=True)
         except BaseException as error:
             primary=error
         self._release(primary)
@@ -761,9 +836,9 @@ def _selected_context(calcjob_uuid,budget):
             try:
                 packet=_Packet(transport,calcjob_uuid,budget)
                 budget.io(sum(len(raw)+1 for raw in packet.raw.values()))
-                native_actor._retrieved_packet(calcjob_uuid,packet.raw,budget.reads)
+                native_actor._retrieved_packet(calcjob_uuid,packet.raw,budget.reads,technical_control=packet.technical_control)
                 sources=_selected(packet)
-                packet.check()
+                packet.check(technical=True)
                 yielded=True
                 yield packet.raw["series_result.json"],sources,None
             except BaseException as error:
