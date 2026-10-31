@@ -1287,7 +1287,8 @@ def _native_result(child, ledger):
     maximum=min(1024*1024,ledger.metadata//8)
     if maximum<1:_fail('budget_exceeded','native_result_workspace')
     ledger.reserve('retrieved result handle/size',metadata=8192)
-    context=retained.base.repository.open('series_result.json','rb');stream=context.__enter__();primary=None
+    from .model_help import StoredLeafReader
+    context=StoredLeafReader(retained.base.repository,owner=retained).open('series_result.json','rb');stream=context.__enter__();primary=None
     try:
         stream.seek(0,2);size=stream.tell()
         if size>maximum:_fail('budget_exceeded','native_result_bound')

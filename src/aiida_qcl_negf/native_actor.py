@@ -30,6 +30,22 @@ TECHNICAL_FILE = "performance-source.json"
 TECHNICAL_LIMIT = 1024 * 1024
 
 
+def _help_retrieval(declared):
+    """One fixed tuple, round-tripped by AiiDA as a list; no directory wildcard."""
+    from .model_help import HELP_RETRIEVE
+    _need(type(declared) is list,'retrieved_declaration')
+    controls=[];help_count=0
+    for item in declared:
+        if type(item) is str:controls.append(item)
+        else:
+            _need(type(item) in (list,tuple) and tuple(item)==HELP_RETRIEVE,'retrieved_declaration')
+            help_count+=1
+    _need(help_count<=1 and len(set(controls))==len(controls) and
+          set(controls) in (set(CONTROL_FILES),set(CONTROL_FILES)|{TECHNICAL_FILE}),
+          'retrieved_declaration')
+    return help_count==1
+
+
 def _technical_control(value):
     """Closed operational observation; opaque bytes carry no scientific verdict."""
     _need(type(value) is dict, "native_technical_control")
@@ -124,7 +140,8 @@ class _Reads:
                 try:
                     context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
                 except BaseException as cleanup:
-                    if primary is None:raise
+                    if primary is None:
+                        cleanup.add_note('original input repository close failed');raise
                     primary.add_note('original input repository close failed: '+type(cleanup).__name__)
             _need(len(raw) <= limit, "input_file_bound")
             self.charge(0)
@@ -405,20 +422,57 @@ def _retrieved_packet(calcjob_uuid, expected, budget, *, technical_control):
               hashlib.sha256(raw).hexdigest() == observation["sha256"], "retrieved_packet_changed")
     budget.charge(8192)
     declared = calc.get_retrieve_list()
-    _need(type(declared) is list and len(declared) in (5,6) and
-          all(type(name) is str for name in declared) and len(set(declared)) == len(declared) and
-          set(declared) in (set(CONTROL_FILES),set(CONTROL_FILES)|{TECHNICAL_FILE}), "retrieved_declaration")
+    help_declared=_help_retrieval(declared)
     selected_names = (*CONTROL_FILES,TECHNICAL_FILE) if present and TECHNICAL_FILE in declared else CONTROL_FILES
     node = _related(calc, LinkType.CREATE, calc.link_label_retrieved, budget, outgoing=True)
     _need(isinstance(node, orm.FolderData) and node.is_stored, "original_retrieved_required")
     repository = node.base.repository
     budget.charge(8192)
     names = []
-    for entry in repository.list_objects():
-        budget.charge(1024)
-        _need(len(names) < len(selected_names) and entry.is_file(), "retrieved_packet_membership")
-        names.append(entry.name)
+    if help_declared:
+        # Read only the shallow public serialized root here. list_objects()
+        # materializes the optional whole File tree before it can be refused.
+        from .model_help import credit,document,strict_repository_tree,HelpUnavailable
+        from .saved_sources import SourceError
+        help_budget=credit()
+        root=repository.metadata
+        _need(type(root) is dict and set(root)<= {'o'},'retrieved_packet_membership')
+        children=root.get('o',{})
+        _need(type(children) is dict and len(children)<=len(selected_names)+1,'retrieved_packet_membership')
+        for name,entry in children.items():
+            if name=='result':
+                _need(type(entry) is dict and set(entry)<= {'o'} and type(entry.get('o',{})) is dict,
+                      'retrieved_packet_membership')
+                try:
+                    # No new optional root/query/read/copy debit is taken from
+                    # the original default16MiB actor workspace.
+                    help_budget.reserve('help actor result root metadata',metadata=1024)
+                    if not entry.get('o'):continue
+                    help_budget.reserve('help actor original input envelope',metadata=MAX_METADATA)
+                    reads=_Reads(MAX_METADATA,before=budget.before)
+                    original=_input(calc,'plan',reads)
+                    plan=document(reads.file(original,role='plan'),MAX_PLAN,help_budget)
+                    execution=_input(calc,'execution_id',reads)
+                    strict_repository_tree(repository,plan,execution.value,help_budget,owner=node)
+                except HelpUnavailable:pass
+                except SourceError as error:
+                    if error.code!='budget_exceeded' or getattr(error,'__notes__',()):raise
+                except NativeActorUnavailable as error:
+                    if str(error)!='metadata_budget' or getattr(error,'__notes__',()):raise
+                continue
+            budget.charge(1024)
+            _need(len(names)<len(selected_names) and type(entry) is dict and set(entry)=={'k'},
+                  'retrieved_packet_membership')
+            names.append(name)
+    else:
+        for entry in repository.list_objects():
+            budget.charge(1024)
+            _need(len(names)<len(selected_names) and entry.is_file(),'retrieved_packet_membership')
+            names.append(entry.name)
     _need(set(names) == set(selected_names), "retrieved_packet_membership")
+    if help_declared:
+        from .model_help import StoredLeafReader
+        repository=StoredLeafReader(repository,owner=node)
     result = {}
     for name in selected_names:
         size = len(expected[name]); raw = bytearray()

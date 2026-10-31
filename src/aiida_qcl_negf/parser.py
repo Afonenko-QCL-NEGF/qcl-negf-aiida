@@ -21,34 +21,41 @@ class QCLExecutionParser(Parser):
     """Store validated result metadata alongside the immutable retrieved artifacts."""
 
     def parse(self, **kwargs):
+        from .model_help import inventory, build_index, StoredLeafReader
+        from plumpy.process_states import KillInterruption, PauseInterruption
+        # Optional help is retained before *every* native/ordinary science exit.
+        # Enumeration uses repository size metadata, never HDF5 seek/read.
+        retrieved=self.retrieved
+        files=inventory(retrieved.base.repository,owner=retrieved)
+        self.out('inventory',orm.Dict(dict=files))
+        index=dict(format='qcl-negf.model-help-index.v1',complete=False,entries=[])
+        try:
+            index=build_index(StoredLeafReader(retrieved.base.repository,owner=retrieved),files,
+                plan=read_plan(self.node.inputs.plan),execution_id=self.node.inputs.execution_id.value)
+        except (KillInterruption,PauseInterruption):raise
+        except (OSError,ValueError,KeyError,TypeError,ValidationError) as error:
+            self.logger.warning('Optional model help index unavailable; raw retained: %s',error)
+        self.out('model_help_index',orm.Dict(dict=index))
         if "b0_reference" in self.node.inputs:
             return self._parse_b0()
         if "source_graph" in self.node.inputs or "native_execution" in self.node.inputs:
             return self._parse_native(**kwargs)
-        # Cache sizes once after retrieval. Repeated portal polling must not seek
-        # through every large compressed HDF5 object in the repository.
-        files = []
-        complete = True
-        repository = self.retrieved.base.repository
-        for root, _, names in repository.walk():
-            for name in names:
-                if len(files) >= 10000:
-                    complete = False
-                    break
-                path = str(root / name)
-                with repository.open(path, "rb") as handle:
-                    handle.seek(0, 2)
-                    size = handle.tell()
-                files.append({"path": path, "size": size})
-            if not complete:
-                break
-        self.out("inventory", orm.Dict(dict={"complete": complete, "files": files}))
+        return self._parse_ordinary(inventory=files,**kwargs)
+
+    def _parse_ordinary(self, *, inventory, **kwargs):
+        # HELP provider/size availability cannot decide a scientific exit.
+        from .model_help import scientific_paths,StoredLeafReader
+        retrieved=self.retrieved
+        repository=retrieved.base.repository
+        namespace=scientific_paths(repository,owner=retrieved)
+        complete=namespace['complete']
+        repository=StoredLeafReader(repository,owner=retrieved)
         plan = read_plan(self.node.inputs.plan)
         execution_id = self.node.inputs.execution_id.value
         attempt = self.node.inputs.attempt.value
         if not complete:
             return self.exit_codes.ERROR_INVALID_RESULT
-        paths = [item["path"] for item in files]
+        paths=namespace["paths"]
         try:
             if "result/pause-receipt.json" in paths:
                 pause, _ = read_metadata(repository, "result/pause-receipt.json")
@@ -75,10 +82,12 @@ class QCLExecutionParser(Parser):
             self.logger.error("Invalid recovery receipt: %s", exception)
             return self.exit_codes.ERROR_INVALID_RECOVERY
         try:
-            with self.retrieved.base.repository.open("result/series_result.json", "rb") as handle:
+            with repository.open("result/series_result.json", "rb") as handle:
                 raw = handle.read(MAX_RESULT_BYTES + 1)
         except (OSError, KeyError, FileNotFoundError):
             return self.exit_codes.ERROR_MISSING_RESULT
+        except (ValueError,TypeError):
+            return self.exit_codes.ERROR_INVALID_RESULT
         try:
             if len(raw) > MAX_RESULT_BYTES:
                 raise ValueError("Result exceeds the metadata size limit")

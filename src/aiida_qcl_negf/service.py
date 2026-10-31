@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -497,7 +498,7 @@ def get_export_plan(identifier: str, execution_id: str, *, attempt=None, calcjob
     return _frozen_plan_for_child(node, child, execution_id)
 
 
-def _frozen_plan_for_child(node, child, execution_id) -> dict[str, Any]:
+def _frozen_plan_for_child(node, child, execution_id, *, ledger=None) -> dict[str, Any]:
     """Read one already selected child's frozen plan, closing all actor handles.
 
     Running children may have only the original input. If a retrieved object is
@@ -505,42 +506,54 @@ def _frozen_plan_for_child(node, child, execution_id) -> dict[str, Any]:
     Callers needing completed export provenance enforce that gate separately.
     """
 
-    def read_bounded(handle) -> bytes:
-        raw = handle.read(MAX_PLAN_BYTES + 1)
-        if len(raw) > MAX_PLAN_BYTES:
-            raise ValueError("Frozen export plan exceeds the metadata size limit")
-        return raw
+    from .model_help import read_closed,document,object_size,StoredLeafReader
+    maximum=MAX_PLAN_BYTES
+    try:child.inputs.native_execution
+    except (AttributeError,KeyError):pass
+    else:
+        from .native_actor import MAX_PLAN
+        maximum=MAX_PLAN
+    def original(owner,path):
+        size=None;repository=owner.base.repository
+        if ledger is not None:
+            size=object_size(owner,path,ledger)
+            if not 0<=size<=maximum:raise ValueError('Frozen plan size limit')
+            repository=StoredLeafReader(repository,owner=owner)
+        return read_closed(repository.open(path,'rb'),maximum=maximum if size is None else size,ledger=ledger,size=size)
+    def decoded(raw):
+        return validate_plan(document(raw,maximum,ledger))
+    def detached(raw,source,plan):
+        value=dict(plan=raw,source=source,sha256=hashlib.sha256(raw).hexdigest(),bytes=len(raw))
+        if ledger is not None:value['_decoded_plan']=plan
+        return value
 
     try:
         input_plan = node.inputs.plan
     except (AttributeError, KeyError) as exception:
         raise ValueError("Frozen file-backed input plan is unavailable") from exception
-    with input_plan.open(mode="rb") as handle:
-        input_bytes = read_bounded(handle)
-    expected = validate_plan(decode(input_bytes, maximum=MAX_PLAN_BYTES))
+    input_bytes=original(input_plan,input_plan.filename) if ledger is not None else read_closed(input_plan.open(mode='rb'),maximum=maximum)
+    expected = decoded(input_bytes)
     if execution_id not in {item["id"] for item in expected["executions"]}:
         raise LookupError("Execution is absent from the frozen input plan")
 
     if "retrieved" not in child.outputs:
-        return {"plan": input_bytes, "source": "aiida.input.plan",
-                "sha256": hashlib.sha256(input_bytes).hexdigest(), "bytes": len(input_bytes)}
+        return detached(input_bytes,'aiida.input.plan',expected)
     repository = child.outputs.retrieved.base.repository
     path = "result/scientific_plan.json"
     try:
-        repository.get_object(path)
+        if ledger is not None:object_size(child.outputs.retrieved,path,ledger)
+        else:repository.get_object(path)
     except FileNotFoundError:
         raw, source = input_bytes, "aiida.input.plan"
     else:
         # Presence is established before opening: read/open failures never take
         # the missing-entry fallback, including a corrupt repository backend.
-        with repository.open(path, "rb") as handle:
-            raw = read_bounded(handle)
-        actual = validate_plan(decode(raw, maximum=MAX_PLAN_BYTES))
+        raw=original(child.outputs.retrieved,path)
+        actual = expected if raw==input_bytes else decoded(raw)
         if actual != expected:
             raise ValueError("Retrieved frozen plan differs from workflow input provenance")
         source = "aiida.retrieved:result/scientific_plan.json"
-    return {"plan": raw, "source": source, "sha256": hashlib.sha256(raw).hexdigest(),
-            "bytes": len(raw)}
+    return detached(raw,source,expected)
 
 
 def _model_help_release(node, child) -> str | None:
@@ -565,7 +578,8 @@ def _model_help_release(node, child) -> str | None:
 
 def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
                          attempt: int | None = None,
-                         calcjob_uuid: str | None = None) -> dict[str, Any]:
+                         calcjob_uuid: str | None = None, *,
+                         fragment_id: str | None = None) -> dict[str, Any]:
     """Return exact selected context and bounded bytes, without inferred values.
 
     This read-only seam supplies no retained source binding or declared/used
@@ -575,6 +589,9 @@ def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
     # Malformed selectors stay ordinary validation errors, outside the small
     # selection-conflict DTO boundary below.
     run_uuid = _export_uuid(run_uuid, "A full process UUID is required")
+    if fragment_id is not None and (type(fragment_id) is not str or
+            not re.fullmatch(r'[a-z][a-z0-9._-]{0,127}',fragment_id)):
+        raise ValueError('A portable fragment ID is required')
     for value in (execution_id, point_id):
         if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
             raise ValueError("Execution and point IDs must be portable identifiers")
@@ -590,8 +607,12 @@ def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
     except ValueError:
         return {"error": "selection_conflict"}
     # No error after selection is relabelled as a conflict or normal unknown.
-    frozen = _frozen_plan_for_child(node, child, execution_id)
-    plan = decode(frozen["plan"], maximum=MAX_PLAN_BYTES)
+    ledger=None
+    if fragment_id is not None and isinstance(child,orm.CalcJobNode):
+        from .model_help import credit
+        ledger=credit()
+    frozen = _frozen_plan_for_child(node, child, execution_id,ledger=ledger)
+    plan = frozen.pop('_decoded_plan') if '_decoded_plan' in frozen else decode(frozen["plan"], maximum=MAX_PLAN_BYTES)
     points = [point for point in plan["points"]
               if point["id"] == point_id and point["execution_id"] == execution_id]
     if len(points) != 1:
@@ -600,7 +621,7 @@ def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
     passport = point["effective_inputs"]
     if any(passport[key] != point[key] for key in ("temperature_K", "voltage_per_period_V")):
         raise ValueError("Frozen point passport axes disagree with the selected point")
-    return {
+    response = {
         "context": {"run_uuid": _export_uuid(node.uuid, "Run identity is invalid"),
                     "execution_id": execution_id, "point_id": point_id,
                     "attempt": selected_attempt, "calcjob_uuid": selected_uuid,
@@ -613,13 +634,18 @@ def get_model_help_input(run_uuid: str, execution_id: str, point_id: str,
         "input_status": {"status": "unavailable", "reason": "inventory_unavailable"},
         "release_id": _model_help_release(node, child),
     }
+    if fragment_id is not None:
+        from .model_help import selected_inputs
+        response=selected_inputs(node,child,plan,response,fragment_id,ledger=ledger)
+    return response
 
 
 def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: dict[str, Any], label: str = "", *,
                 scratch_root: str | None = None, release_id: str | None = None, max_attempts: int = 3,
                 retry_backoff_seconds: int = 10, archive_byte_budget: int = MAX_ARCHIVE_BYTES,
                 b0_slot=None, source_graph: orm.SinglefileData | None = None,
-                native_executions: dict[str, orm.SinglefileData] | None = None) -> dict[str, Any]:
+                native_executions: dict[str, orm.SinglefileData] | None = None,
+                model_help_assets: orm.FolderData | None = None) -> dict[str, Any]:
     """Submit a frozen plan to the daemon after validating every admission input."""
     if b0_slot is not None:
         if source_graph is not None or native_executions is not None:
@@ -640,6 +666,10 @@ def submit_plan(plan: dict[str, Any] | str | bytes, code_uuid: str, resources: d
         raise ValueError("archive_byte_budget must be positive")
     options = {"max_attempts": orm.Int(max_attempts), "retry_backoff_seconds": orm.Int(retry_backoff_seconds),
                "archive_byte_budget": orm.Int(archive_byte_budget)}
+    if model_help_assets is not None:
+        if not isinstance(model_help_assets,orm.FolderData) or not model_help_assets.is_stored:
+            raise ValueError('model_help_assets requires immutable stored original FolderData')
+        options['model_help_assets']=model_help_assets
     deployment_release = os.environ.get("QCL_NEGF_RELEASE_ID")
     deployment_solver = os.environ.get("QCL_NEGF_SOLVER_EXECUTABLE")
     deployment_gate = os.environ.get("QCL_NEGF_RELEASE_GATE")

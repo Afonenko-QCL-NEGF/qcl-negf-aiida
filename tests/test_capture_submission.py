@@ -15,6 +15,7 @@ from aiida_qcl_negf.calculation import QCLExecutionCalculation
 from aiida_qcl_negf.data import plan_data
 from aiida_qcl_negf.validation import scheduler_options
 from test_native_actor import native_graph
+from aiida_qcl_negf.model_help import HELP_RETRIEVE
 
 
 @pytest.mark.integration
@@ -66,7 +67,7 @@ def test_native_origin_literal_eleven_args_and_fixed_capture_exports(native_grap
                 with folder.open(name,"rb") as stream:assert stream.read()==wanted
             assert not folder.isfile("capture-spec.json")
         assert info.prepend_text.endswith("\nexport QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json")
-        assert info.retrieve_list==["series_result.json","native-selection.json","native-close.json","performance-source.json"]
+        assert info.retrieve_list==["series_result.json","native-selection.json","native-close.json","performance-source.json",HELP_RETRIEVE]
     finally:
         process.close()
 
@@ -102,7 +103,7 @@ def test_native3_stock_after_genuine_CREATE_and_same_candidate(ingress_process,m
         assert spec['schema']=='qcl-negf.capture-spec.v3' and len(spec)==9
         from qcl_negf_results.capture import _spec,ObserverIO
         assert _spec(Path(raw),budget=ObserverIO(128*1024*1024))[1]==spec
-        assert info.retrieve_list==['series_result.json','native-selection.json','native-close.json','performance-source.json','_scheduler-stdout.txt','_scheduler-stderr.txt']
+        assert info.retrieve_list==['series_result.json','native-selection.json','native-close.json','performance-source.json',HELP_RETRIEVE,'_scheduler-stdout.txt','_scheduler-stderr.txt']
         with script.open(mode='rb') as stream:original=stream.read()
         assert b'export QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json\n' in original
         process.presubmit(folder)
@@ -272,7 +273,8 @@ def test_native3_actual_optional_retrieve_declaration_and_genuine_core5(ingress_
     process,f=ingress_process
     with SandboxFolder() as folder:
         info=process.presubmit(folder)
-        assert len(info.retrieve_list)==6 and 'performance-source.json' in process.node.get_retrieve_list()
+        assert len(info.retrieve_list)==7 and 'performance-source.json' in process.node.get_retrieve_list()
+        assert native_actor._help_retrieval(process.node.get_retrieve_list())
         expected={name:b'original '+name.encode() for name in native_actor.CONTROL_FILES}
         retrieved=orm.FolderData()
         for name,raw in expected.items():retrieved.base.repository.put_object_from_filelike(io.BytesIO(raw),name)

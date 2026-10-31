@@ -31,6 +31,15 @@ def plan_bytes():
 def modern_plan():return json.loads(plan_bytes())
 
 
+def stationary_plan_bytes():
+    # Original P07/native-origin synthetic stationary plan-only input. Its
+    # original source/runtime is not relabelled as Runner9617 or current c8.
+    raw=(Path(__file__).parent/'fixtures/model-help/runner-native-origin-stationary-plan.json').read_bytes()
+    assert len(raw)==113111
+    assert hashlib.sha256(raw).hexdigest()=='d9006b48f839f702a8f28214f29b3ba1961c886653176b313a375c7ee9dd53ba'
+    return raw
+
+
 class Outputs(dict):
     def __getattr__(self, name):
         try:
@@ -90,6 +99,38 @@ def source(monkeypatch):
 
 def read(**kwargs):
     return service.get_model_help_input(RUN, "execution-1", "point-1", **kwargs)
+
+
+def test_optional_fragment_is_additive_and_context_only_default_stays_exact(source):
+    legacy=read()
+    assert read(fragment_id=None)==legacy
+    dto=read(fragment_id='runner-inputs')
+    assert dto['context']==legacy['context'] and dto['snapshot'] is None
+    assert dto['retained']['metadata']['frozen_plan']==dto['frozen_plan']
+    assert dto['retained']['selection']['fragment_id']=='runner-inputs'
+    assert all(h.closed for h in source.handles)
+
+
+@pytest.mark.parametrize('primary',[False,True])
+def test_original_plan_close_precedes_reply_and_preserves_cancel(source,primary):
+    error=KeyboardInterrupt('primary original plan cancellation')
+    class Handle:
+        def read(self,n):
+            if primary:raise error
+            return source.raw
+    class Context:
+        def __enter__(self):return Handle()
+        def __exit__(self,*args):raise OSError('secondary repository close')
+    source.node.inputs.plan.open=lambda **k:Context()
+    with pytest.raises(KeyboardInterrupt if primary else OSError) as caught:read(fragment_id='runner-inputs')
+    if primary:
+        assert caught.value is error and 'OSError' in str(error.__notes__)
+
+
+@pytest.mark.parametrize('fragment',[True,'../bad','','X'*129])
+def test_fragment_validation_precedes_selection(source,monkeypatch,fragment):
+    monkeypatch.setattr(service,'_export_child',lambda *a,**k:pytest.fail('selection reached'))
+    with pytest.raises(ValueError):read(fragment_id=fragment)
 
 
 def test_actual_ordinary_context_and_c1_c2_unknown(source, monkeypatch):

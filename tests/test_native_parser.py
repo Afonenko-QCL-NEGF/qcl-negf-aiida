@@ -30,6 +30,18 @@ from test_native_binding import SEED
 M = 1024 * 1024
 
 
+def assert_empty_optional_help(outputs):
+    """Genuine retained metadata survives science failure; no availability claim."""
+    from qcl_negf_contracts import schema_validator
+    index=outputs['model_help_index'].get_dict()
+    schema_validator('model-help.schema.json').validate(index)
+    assert index==dict(format='qcl-negf.model-help-index.v1',complete=True,entries=[])
+    inventory=outputs['inventory'].get_dict()
+    assert inventory['complete'] is True
+    assert all(set(row)=={'path','size'} and type(row['size']) is int and row['size']>=0
+               for row in inventory['files'])
+
+
 def raw_pin(node, raw):
     return dict(node_uuid=node.uuid, bytes=str(len(raw)), sha256=hashlib.sha256(raw).hexdigest())
 
@@ -82,7 +94,8 @@ def test_absent_only_genuine_calcjob_pair_scalar_selection_and_offline_getter(na
     assert code.status==302
     process.update_outputs()
     outputs={row.link_label:row.node for row in process.node.base.links.get_outgoing(link_type=LinkType.CREATE).all()}
-    assert set(outputs)=={'retrieved','result','native_binding','selection'}
+    assert set(outputs)=={'retrieved','result','native_binding','selection','inventory','model_help_index'}
+    assert_empty_optional_help(outputs)
     with outputs['result'].open(mode='rb') as stream:assert stream.read()==raw
     scalar=outputs['selection'].get_dict()
     assert scalar['commits']=={} and scalar['recovery_commit_sha256'] is None
@@ -96,7 +109,8 @@ def test_absent_only_genuine_calcjob_pair_scalar_selection_and_offline_getter(na
     assert [r['point_id'] for r in view['binding']['attempt_history']]==['point']
     assert struct.pack('>d',json.loads(view['result_utf8'])['points'][0]['observables']['current_density_A_per_m2']).hex()=='8000000000000000'
     assert view['integrity']==dict(native_contexts='not_reverified',current_access='not_checked',scientific_acceptance='not_assessed')
-    assert 'inventory' not in outputs
+    assert outputs['inventory'].creator.uuid==process.node.uuid
+    assert outputs['model_help_index'].creator.uuid==process.node.uuid
     with pytest.raises(ValueError):
         service.get_native_result_source(f['run'].uuid,'execution',attempt=7,calcjob_uuid=process.node.uuid,point_id='point',binding_uuid=f['plan'].uuid)
 
@@ -107,7 +121,8 @@ def test_native_does_not_fall_through_legacy_inventory_or_publish_before_A_exit(
     monkeypatch.setattr(native_backend,'open_native_selected_sources',lambda *a,**k:access(raw,cleanup=ValueError('exit source changed')))
     parser=QCLExecutionParser(process.node)
     assert parser.parse().status==301
-    assert parser.outputs=={}
+    assert set(parser.outputs)=={'inventory','model_help_index'}
+    assert_empty_optional_help(parser.outputs)
 
 
 @pytest.mark.integration
@@ -328,7 +343,9 @@ def test_native_missing_result_preserves_existing_missing_exit(native_graph):
     child=native_graph['calc'];folder=orm.FolderData()
     folder.base.links.add_incoming(child,LinkType.CREATE,'retrieved');folder.store()
     parser=QCLExecutionParser(child)
-    assert parser.parse().status==300 and parser.outputs=={}
+    assert parser.parse().status==300
+    assert set(parser.outputs)=={'inventory','model_help_index'}
+    assert_empty_optional_help(parser.outputs)
 
 
 @pytest.mark.integration
@@ -624,7 +641,8 @@ def test_c1_checkpoint_actual_parser_aggregate_credit_feasibility(scientific_acc
             # Public orchestration keeps the original scientific exit and its
             # genuine pair when readback credit fails; no selection is exposed.
             assert code.status==302
-            assert set(outputs)=={'native_submit_script','retrieved','result','native_binding','selection'}
+            assert set(outputs)=={'native_submit_script','retrieved','result','native_binding','selection','inventory','model_help_index'}
+            assert_empty_optional_help(outputs)
             assert ledger.metadata>0
             assert [r[0] for r in ledger.reservations].count('origin raw port full allowance')==2
             assert any(r[0]=='scalar selection constructor/readback' for r in ledger.reservations)
@@ -984,7 +1002,8 @@ def test_closed_api_actual_calcjob_whole_pair_readback_scalar(scientific_access,
         with saved_sources._native_operation(saved_sources._NATIVE_METADATA,saved_sources._NATIVE_IO) as ledger:
             code=process.parse_retrieved_output();process.update_outputs()
             outputs={r.link_label:r.node for r in process.node.base.links.get_outgoing(link_type=LinkType.CREATE).all()}
-            assert code.status==302 and set(outputs)=={'native_submit_script','retrieved','result','native_binding','selection'}
+            assert code.status==302 and set(outputs)=={'native_submit_script','retrieved','result','native_binding','selection','inventory','model_help_index'}
+            assert_empty_optional_help(outputs)
             names=[r[0] for r in ledger.reservations]
             assert names.count('Results reusable whole-call workspace')==1
             assert names.count('AiiDA binder/outward cache workspace')==1

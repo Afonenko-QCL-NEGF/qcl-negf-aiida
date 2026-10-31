@@ -367,7 +367,9 @@ def test_native_presubmit_genuine_create_original_script_and_repeat(native_graph
             command=next(line for line in original.decode().splitlines() if "run-plan" in line)
             words=shlex.split(command)
             assert words[0]==str(f["code"].filepath_executable) and words[1:12]==expected
-            assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","native-close.json","performance-source.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
+            from aiida_qcl_negf.model_help import HELP_RETRIEVE
+            assert tuple(info.retrieve_list)==("series_result.json","native-selection.json","native-close.json","performance-source.json",HELP_RETRIEVE,"_scheduler-stdout.txt","_scheduler-stderr.txt")
+            assert actor()._help_retrieval(info.retrieve_list)
         with SandboxFolder() as second:
             process.presubmit(second)
             assert process.node.outputs.native_submit_script.uuid==script.uuid
