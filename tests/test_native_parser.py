@@ -1315,3 +1315,91 @@ def test_scalar_cursor_successful_read_does_not_hide_close_failure():
         def exec_driver_sql(self,*args):return Cursor()
     with pytest.raises(RuntimeError) as caught:saved_sources._native_scalar_rows(Connection(),'fixed controlled SELECT')
     assert caught.value is error
+
+
+from test_native_selected_sources import packet as q1t_packet
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("q1t_packet",["large_plan"],indirect=True)
+def test_real_B_selected_allowance_completes_with_real_A_provider(q1t_packet,record_property):
+    """Actual private ORM/close3/RO simulation: no native or producer verdict."""
+    p=q1t_packet;p.raw["performance-source.json"]=b"opaque"+b"x"*(65536-6);p.write();p.stored()
+    original=p.raw["series_result.json"]
+    assert len(p.f["raw_plan"])==113111
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as ledger:
+        result,binding=saved_sources._prepare_native_outputs(p.calc,original,
+            maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+        with result.open(mode="rb") as stream:assert stream.read()==original
+        reserve=[r for r in ledger.reservations if r[0]=="A selected access full lifetime"]
+        assert reserve==[("A selected access full lifetime",16*M,64*M)]
+        assert len(p.calls)==1 and p.transports[-1].is_open is False
+        result.base.links.add_incoming(p.calc,LinkType.CREATE,"result");result.store()
+        binding.base.links.add_incoming(p.calc,LinkType.CREATE,"native_binding");binding.store()
+        result_pin=raw_pin(result,original)
+        with binding.open(mode="rb") as stream:binding_pin=raw_pin(binding,stream.read())
+        saved_sources._readback_native_outputs(p.calc,expected_result=result_pin,expected_binding=binding_pin,
+            maximum_metadata_bytes=saved_sources._NATIVE_METADATA)
+        assert sum(entry[1] for entry in ledger.reservations)==saved_sources._NATIVE_METADATA-ledger.metadata
+        assert sum(entry[2] for entry in ledger.reservations)==256*M-ledger.io
+        record_property("actual_B_ledger",json.dumps(dict(metadata_used=saved_sources._NATIVE_METADATA-ledger.metadata,
+            io_used=256*M-ledger.io,A_metadata_reserve=reserve[0][1],A_protocol_calls=len(p.calls)),sort_keys=True))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("q1t_packet",["large_plan"],indirect=True)
+def test_real_B_tighter_outer_credit_holds_before_A_or_constructors(q1t_packet,monkeypatch):
+    p=q1t_packet;p.raw["performance-source.json"]=b"x"*65536;p.write();p.stored()
+    # Measure the exact prefix in one successful real operation. A distinct
+    # caller then owns a tighter operation; no failed ledger is reset/refunded.
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as probe:
+        saved_sources._prepare_native_outputs(p.calc,p.raw["series_result.json"],
+            maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+        prefix=0
+        for name,metadata,_ in probe.reservations:
+            if name=="A selected access full lifetime":break
+            prefix+=metadata
+        else:raise AssertionError("missing actual A admission")
+    calls_before=len(p.calls);transports_before=len(p.transports);constructors=[]
+    original=orm.SinglefileData.__init__
+    def construct(node,*args,**kwargs):
+        constructors.append(True)
+        return original(node,*args,**kwargs)
+    monkeypatch.setattr(orm.SinglefileData,"__init__",construct)
+    maximum=prefix+16*M-1
+    with saved_sources._native_operation(maximum,256*M) as ledger:
+        with pytest.raises(saved_sources.SourceError) as caught:
+            saved_sources._prepare_native_outputs(p.calc,p.raw["series_result.json"],maximum_metadata_bytes=maximum,maximum_io_bytes=256*M)
+        assert caught.value.code=="budget_exceeded" and caught.value.detail=="A selected access full lifetime"
+        remaining=ledger.metadata
+        assert ledger.failed and remaining==16*M-1 and len(p.calls)==calls_before and len(p.transports)==transports_before and constructors==[]
+        assert sum(entry[1] for entry in ledger.reservations)==maximum-remaining
+        with pytest.raises(saved_sources.SourceError):
+            saved_sources._prepare_native_outputs(p.calc,p.raw["series_result.json"],maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+        assert ledger.metadata==remaining and len(p.calls)==calls_before and constructors==[]
+    assert set(p.calc.outputs)=={"native_submit_script","retrieved"}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("q1t_packet",["large_plan"],indirect=True)
+def test_real_B_A_cancel_preserves_primary_after_secondary_transport_close(q1t_packet,monkeypatch):
+    p=q1t_packet;p.raw["performance-source.json"]=b"x"*65536;p.write();p.stored()
+    primary=KeyboardInterrupt("original actual A cancellation")
+    def cancelled(packet):raise primary
+    monkeypatch.setattr(native_backend,"_selected",cancelled)
+    def transport(authinfo):
+        t=p.transport();close=t.close
+        def secondary():
+            close()
+            raise OSError("secondary actual transport close")
+        t.close=secondary
+        return t
+    monkeypatch.setattr(orm.AuthInfo,"get_transport",transport)
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as ledger:
+        with pytest.raises(KeyboardInterrupt) as caught:
+            saved_sources._prepare_native_outputs(p.calc,p.raw["series_result.json"],
+                maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+        assert caught.value is primary and any("native close failed" in note for note in primary.__notes__)
+        assert ledger.failed and len(p.calls)==1 and all(not t.is_open for t in p.transports)
+        assert sum(entry[1] for entry in ledger.reservations)==saved_sources._NATIVE_METADATA-ledger.metadata
+    assert set(p.calc.outputs)=={"native_submit_script","retrieved"}
