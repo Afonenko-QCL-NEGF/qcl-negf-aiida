@@ -19,7 +19,7 @@ class Outputs(dict):
 
 @pytest.fixture
 def source(monkeypatch):
-    plan = json.loads((Path(__file__).parent / "fixtures/plan.json").read_bytes())
+    plan = json.loads((Path(__file__).parent / "fixtures/export-plan/current-plan-v2.json").read_bytes())
     input_bytes = json.dumps(plan, ensure_ascii=False, indent=3).encode() + b"\n"
 
     class Input:
