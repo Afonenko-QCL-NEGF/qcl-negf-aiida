@@ -5,7 +5,12 @@ from aiida_qcl_negf import native_backend, native_actor
 def test_A01_public_selected_access_port():
     function = getattr(native_backend, "open_native_selected_sources", None)
     assert callable(function), "missing actual selected-source context manager"
-    assert tuple(inspect.signature(function).parameters) == ("calcjob_uuid", "maximum_metadata_bytes", "maximum_io_bytes")
+    parameters = inspect.signature(function).parameters
+    assert tuple(parameters) == (
+        "calcjob_uuid", "maximum_metadata_bytes", "maximum_io_bytes", "include_performance",
+    )
+    assert parameters["include_performance"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["include_performance"].default is False
 
 def test_A01_exact_five_controls():
     assert native_actor.CONTROL_FILES == ("series_result.json", "native-selection.json", "native-close.json", "_scheduler-stdout.txt", "_scheduler-stderr.txt")

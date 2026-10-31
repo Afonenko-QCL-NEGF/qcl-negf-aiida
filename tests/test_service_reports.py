@@ -170,3 +170,18 @@ def test_report_allows_exact_bound_and_rejects_plus_one(report_source):
         with pytest.raises(ValueError) as error:
             service.get_run_report(RUN)
         assert str(error.value) == ERROR
+
+
+def test_T4_private_result_scope_is_exact_and_resets_on_cancel():
+    from aiida_qcl_negf import service
+    provider=dict(run_uuid='00000000-0000-4000-8000-000000000001',execution_id='selected',attempt=1,
+        calcjob_uuid='00000000-0000-4000-8000-000000000002')
+    primary=KeyboardInterrupt('private selector cancel')
+    with pytest.raises(KeyboardInterrupt) as caught:
+        with service._performance_result_scope(provider):
+            assert service._T4_NATIVE_RESULT_PROVIDER.get()==tuple(provider[k] for k in ('run_uuid','execution_id','attempt','calcjob_uuid'))
+            with pytest.raises(ValueError):
+                with service._performance_result_scope(provider):pass
+            with pytest.raises(ValueError):service._performance_result_child(provider['run_uuid'],'foreign',1,provider['calcjob_uuid'])
+            raise primary
+    assert caught.value is primary and service._T4_NATIVE_RESULT_PROVIDER.get() is None

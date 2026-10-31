@@ -12,6 +12,7 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 from uuid import UUID
@@ -992,14 +993,12 @@ def get_saved_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
                      source_uuid=source_uuid, expected_source_sha256=expected_source_sha256)
 
 
-def get_performance_source(run_uuid, execution_id, *, attempt, calcjob_uuid):
-    """Exact execution summary, never a cost attributed to borrowed point data."""
-    from .performance_binding import retained_source
-    child, _, _ = _export_child(run_uuid, execution_id, attempt=attempt, calcjob_uuid=calcjob_uuid)
-    try:
-        return retained_source(child)
-    except (ValueError, TypeError, KeyError, AttributeError, OSError, ImportError):
-        return {"status": "unavailable", "reason": "performance_binding_invalid_or_unavailable"}
+def get_performance_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
+                           mode='retained',anchor_key=None,current_snapshot=None):
+    """Exact original/CREATE metadata; current access and science remain separate."""
+    from .performance_binding import native_source
+    return native_source(run_uuid,execution_id,attempt=attempt,calcjob_uuid=calcjob_uuid,
+        mode=mode,anchor_key=anchor_key,current_snapshot=current_snapshot)
 
 
 def get_live_history_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
@@ -1009,13 +1008,56 @@ def get_live_history_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
                      point_id=point_id, source_attempt=source_attempt, namespace_id=namespace_id)
 
 
+_T4_NATIVE_RESULT_PROVIDER=ContextVar('qcl_t4_native_result_provider',default=None)
+_T4_SELECTOR_ALLOWANCE=96<<10
+
+
+@contextmanager
+def _performance_result_scope(provider):
+    """Exact T4 selection only, never a node/pin or origin certificate."""
+    if _T4_NATIVE_RESULT_PROVIDER.get() is not None:raise ValueError('nested T4 native result selection')
+    fields=('run_uuid','execution_id','attempt','calcjob_uuid')
+    if type(provider) is not dict or set(provider)!=set(fields):raise ValueError('exact T4 provider required')
+    token=_T4_NATIVE_RESULT_PROVIDER.set(tuple(provider[field] for field in fields))
+    try:yield
+    finally:_T4_NATIVE_RESULT_PROVIDER.reset(token)
+
+
+def _performance_result_child(run_uuid,execution_id,attempt,calcjob_uuid):
+    """Finite actual CALL chain for the privately prepaid T4 invocation."""
+    from . import native_actor
+    expected=(run_uuid,execution_id,attempt,calcjob_uuid)
+    if _T4_NATIVE_RESULT_PROVIDER.get()!=expected:raise ValueError('conflicting T4 native result selection')
+    native_actor._uuid(run_uuid);native_actor._uuid(calcjob_uuid)
+    if type(attempt) is not int or not 0<attempt<=9007199254740991 or type(execution_id) is not str or not 1<=len(execution_id)<=128:
+        raise ValueError('exact T4 native result scalar selection')
+    reads=native_actor._Reads(_T4_SELECTOR_ALLOWANCE)
+    rows=reads.query(orm.QueryBuilder().append(orm.CalcJobNode,filters={'uuid':calcjob_uuid,
+        'process_type':'aiida.calculations:qcl_negf.execution'},project='*'))
+    if len(rows)!=1:raise ValueError('T4 selected typed CalcJob missing')
+    child=rows[0];parent=native_actor._related(child,LinkType.CALL_CALC,None,reads)
+    if not isinstance(parent,orm.WorkChainNode):raise ValueError('T4 actual WorkChain parent required')
+    if parent.process_type=='aiida.workflows:qcl_negf.execution_restart':
+        parent=native_actor._related(parent,LinkType.CALL_WORK,None,reads)
+    if (not isinstance(parent,orm.WorkChainNode) or parent.process_type!='aiida.workflows:qcl_negf.plan' or parent.uuid!=run_uuid):
+        raise ValueError('T4 exact typed plan CALL owner differs')
+    actual_attempt=native_actor._input(child,'attempt',reads);execution=native_actor._input(child,'execution_id',reads)
+    if (type(actual_attempt) is not orm.Int or type(execution) is not orm.Str or
+            actual_attempt.value!=attempt or execution.value!=execution_id):
+        raise ValueError('T4 exact original INPUT scalars differ')
+    return child,attempt,calcjob_uuid
+
+
 def get_native_result_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
                              point_id, binding_uuid=None) -> dict:
     """Exact retained ORM/raw view, without renewing native source access."""
     from .saved_sources import _retained_native_result_source, _NATIVE_METADATA
     if attempt is None or calcjob_uuid is None:
         raise ValueError('exact native attempt and CalcJob UUID required')
-    child,actual_attempt,actual_uuid=_export_child(run_uuid,execution_id,attempt=attempt,calcjob_uuid=calcjob_uuid)
+    if _T4_NATIVE_RESULT_PROVIDER.get() is None:
+        child,actual_attempt,actual_uuid=_export_child(run_uuid,execution_id,attempt=attempt,calcjob_uuid=calcjob_uuid)
+    else:
+        child,actual_attempt,actual_uuid=_performance_result_child(run_uuid,execution_id,attempt,calcjob_uuid)
     if (actual_attempt,actual_uuid)!=(attempt,calcjob_uuid):
         raise ValueError('native selected child differs')
     view=_retained_native_result_source(child,point_id=point_id,binding_uuid=binding_uuid,maximum_metadata_bytes=_NATIVE_METADATA)

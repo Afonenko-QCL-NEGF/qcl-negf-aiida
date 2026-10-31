@@ -57,12 +57,61 @@ word `verified` is never a fresh HDF/source-access qualification.
 
 `verify_native_performance(reader, telemetry=..., limits=...)` consumes the
 public typed Results view. TelemetrySelection fields remain caller assertions;
-the reader does not certify their actual ORM origin. A currently returns no
-technical operand, so native runtime performance explicitly remains
-`native_technical_context_unavailable`. No FolderData telemetry carrier or new
-recovery/producer port is added. The exact service signature
-`get_performance_source(run_uuid, execution_id, attempt=..., calcjob_uuid=...)`
-is preserved and returns that unavailable reason for native selection.
+the reader does not certify their actual ORM origin. The default A call keeps
+its third tuple element `None`. Its literal
+`include_performance=True` opt-in yields the whole closed raw index and exact
+in-process root mappings inside the same finite access lifetime. Those paths
+are access operands; the separate T4 proof joins actual original INPUT/CALL and
+unique script CREATE before accepting source metadata.
+
+`get_performance_source(run_uuid, execution_id, attempt=..., calcjob_uuid=...,
+mode='retained', anchor_key=None, current_snapshot=None)` returns the existing
+source.v2 wire. Retained mode reads only genuine `performance_source` CREATE,
+whole index bytes and original four inputs; it opens no A/NFS path. Current mode
+first returns an internal locator with the genuine original pins. An exact
+`{index_ref,index_utf8,anchor_key}` snapshot is independently requalified; it
+supplies no fresh access authority. A later payload owner must qualify all roots
+and public Results reads again.
+
+The optional output is a separate SinglefileData named `performance-source.json`.
+The common B scalar/result/native_binding projection is unchanged. T4 qualifies
+every entry and original root, including unselected/history-only roots, before
+selection. One produced entry can select automatically; multiple entries need
+an explicit anchor key, and borrowed entries always need their actual bounded
+parent_binding/CREATE chain. Empty phase zero is staging; absent retained CREATE
+is unavailable. History-only metadata needs no fabricated B pair. Checkpoint or
+final association uses the full existing B scalar/raw proof and exact point,
+StateRef and invocation, including attempt_history.
+
+The measured whole-native T4 default is 640 MiB (`NATIVE_METADATA`); the existing
+`MAX_METADATA` file/format bound remains 1 MiB. This is operational admission,
+not universal admission of every schema maximum. T4 uses one nonrefundable
+ledger for original reads, A, the closed metadata role
+preflight, public readers, copies, CREATE and readbacks. The fixed preflight is
+current commit/summary/source binding and catalog, one previous delta,
+committed phase/resume pairs, direct current catalog members, the exact manifest
+and original plan. It follows no old catalog member locators. Original raw
+syntax/counts/sizes prepay decoding, copying and the independent public second
+pass. Parquet raw members are bounded and hash checked, with prepaid footer/schema
+metadata; no row decoding or scientific history payload is added to publication.
+Held nofollow file identities and whole bytes are rechecked after Results close,
+then A and original4 close/readback precede any new output effect.
+
+Only the private T4 scope changes public B selection to a finite typed CALL
+lookup: direct plan or one restart, unique two-row-limited queries and a separate
+96KiB prepayment. Outside that scope the existing public B behavior is unchanged.
+Conflicting/nested scopes refuse and cancellation always resets the token.
+Operational gross allowances include prepaid nested owners; they are neither
+actual delivered bytes nor native heap/RSS guarantees. Native/C/DB allocations
+remain separately measured. Explicit smaller caller credits deny before the
+next effect and receive no refund.
+
+`available/qualified_source` means metadata origin-qualified operands. Integrity
+continues to say `native_contexts=not_reverified`, `current_access=not_checked`,
+`scientific_acceptance=not_assessed`. A scientific negative keeps its original
+exit code. Partial CREATE failures retain nodes; retries only accept the same
+whole immutable output. Source/L fixtures do not close installed/native R5 or
+scientific gates.
 
 `service.get_live_history_source(..., point_id=..., source_attempt=..., namespace_id=...)`
 returns graph/frozen-point mapping only (`live-source.v1`, descriptor_verified=false).

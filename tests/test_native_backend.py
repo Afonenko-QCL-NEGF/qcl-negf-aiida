@@ -414,3 +414,141 @@ def test_Q1T_optional_read_cancel_keeps_primary_with_secondary_fd_close_failure(
         assert caught.value is primary and any("file FD cleanup failed" in note for note in primary.__notes__)
     finally:
         monkeypatch.setattr(module.os,"close",closing);tree.close()
+
+
+def test_T4_public_selected_context_has_only_explicit_literal_opt_in(monkeypatch):
+    import inspect
+    from aiida_qcl_negf import native_actor
+    module=backend()
+    parameters=inspect.signature(module.open_native_selected_sources).parameters
+    assert parameters['include_performance'].default is False
+    monkeypatch.setattr(native_actor,'_orm',lambda:pytest.fail('bad opt-in reached profile'))
+    for value in (None,0,1,'true'):
+        with pytest.raises(ValueError):module.open_native_selected_sources('bad',maximum_metadata_bytes=1,maximum_io_bytes=1,include_performance=value)
+
+
+@pytest.mark.parametrize('signal_name',['KillInterruption','KeyboardInterrupt','SystemExit',None,'enter'])
+def test_T4_repair_proc_primary_and_success_close_failure(monkeypatch,signal_name):
+    import builtins
+    from contextlib import contextmanager
+    from plumpy.process_states import KillInterruption
+    module=backend();real=builtins.open;hits=[];streams=[]
+    signals=dict(KillInterruption=KillInterruption,KeyboardInterrupt=KeyboardInterrupt,SystemExit=SystemExit,enter=KillInterruption)
+    primary=signals[signal_name]('proc primary') if signal_name else None
+    secondary=OSError('proc secondary close')
+    @contextmanager
+    def opening(path,*a,**k):
+        with real(path,*a,**k) as stream:
+            if path!='/proc/self/status':yield stream;return
+            streams.append(stream)
+            if signal_name=='enter':hits.append('enter');raise primary
+            class Proxy:
+                def read(self,*args):
+                    hits.append('read')
+                    if primary is not None:raise primary
+                    return stream.read(*args)
+            try:yield Proxy()
+            finally:hits.append('secondary_close');raise secondary
+    monkeypatch.setattr(builtins,'open',opening)
+    with pytest.raises(type(primary or secondary)) as caught:module._proc_bytes('/proc/self/status',module._Operation())
+    assert caught.value is (primary or secondary)
+    assert hits==['enter'] if signal_name=='enter' else hits[-1]=='secondary_close' and hits[:-1] and set(hits[:-1])=={'read'}
+    assert all(stream.closed for stream in streams)
+
+
+@pytest.mark.parametrize('signal_name',['KillInterruption','PauseInterruption','KeyboardInterrupt','SystemExit',None])
+def test_T4_repair_selector_close_preserves_primary_and_attempts_child_cleanup(tmp_path,monkeypatch,signal_name):
+    import shlex
+    from plumpy import process_states
+    module=backend();real_selector=module.selectors.DefaultSelector;real_spawn=module.subprocess.Popen;processes=[];hits=[]
+    signals=dict(KillInterruption=process_states.KillInterruption,PauseInterruption=process_states.PauseInterruption,KeyboardInterrupt=KeyboardInterrupt,SystemExit=SystemExit)
+    primary=signals[signal_name]('selector primary') if signal_name else None
+    def spawned(*a,**k):
+        proc=real_spawn(*a,**k);processes.append(proc);return proc
+    def selector():
+        selected=real_selector();close=selected.close;select=selected.select
+        def failing_select(*a,**k):
+            hits.append('select')
+            if primary is not None:raise primary
+            return select(*a,**k)
+        def failing_close():close();hits.append('secondary_close');raise OSError('selector secondary close')
+        selected.select=failing_select;selected.close=failing_close;return selected
+    monkeypatch.setattr(module.subprocess,'Popen',spawned);monkeypatch.setattr(module.selectors,'DefaultSelector',selector)
+    transport=module.NativeLocalTransport(machine='localhost',native_computer_uuid='00000000-0000-4000-8000-000000000001')
+    with transport,pytest.raises(type(primary) if primary else PauseInterruption) as caught:
+        transport.exec_command_wait_bytes(shlex.join([sys.executable,'-c','pass']),workdir=str(tmp_path))
+    if primary is not None:assert caught.value is primary
+    assert 'select' in hits and hits[-1]=='secondary_close'
+    assert processes[0].returncode is not None and all(s.closed for s in (processes[0].stdin,processes[0].stdout,processes[0].stderr))
+
+
+def test_T4_repair_partial_tree_open_closes_every_owned_FD_and_keeps_primary(tmp_path,monkeypatch):
+    import os
+    from plumpy.process_states import KillInterruption
+    module=backend();opened=[];closed=[];real_open=os.open;real_close=os.close;real_stat=os.fstat
+    primary=KillInterruption('partial tree enter primary')
+    def opening(*a,**k):
+        fd=real_open(*a,**k);opened.append(fd);return fd
+    def stat(fd):
+        if len(opened)==2 and fd==opened[-1]:raise primary
+        return real_stat(fd)
+    def closing(fd):
+        closed.append(fd);real_close(fd)
+        if fd==opened[0]:raise OSError('partial tree parent close secondary')
+    with monkeypatch.context() as patch:
+        patch.setattr(module.os,'open',opening);patch.setattr(module.os,'fstat',stat);patch.setattr(module.os,'close',closing)
+        with pytest.raises(KillInterruption) as caught:module._Tree(str(tmp_path),module._Operation())
+    try:
+        assert caught.value is primary and sorted(closed)==sorted(opened)
+        for fd in opened:
+            with pytest.raises(OSError):real_stat(fd)
+    finally:
+        # The RED control owns any leaked FD and reconciles only that handle.
+        for fd in set(opened)-set(closed):real_close(fd)
+
+
+@pytest.mark.parametrize('signal_name',['KillInterruption','PauseInterruption'])
+def test_T4_repair_cleanup_only_process_signal_is_not_an_ordinary_HOLD(tmp_path,monkeypatch,signal_name):
+    import shlex
+    from plumpy import process_states
+    module=backend();spawn=module.subprocess.Popen;processes=[];closes=[]
+    primary=getattr(process_states,signal_name)('owned pipe cleanup signal')
+    def spawned(*a,**k):
+        proc=spawn(*a,**k);processes.append(proc);stream=proc.stdin
+        class Input:
+            def __getattr__(self,name):return getattr(stream,name)
+            def close(self):
+                stream.close();closes.append(True)
+                if len(closes)==2:raise primary
+        proc.stdin=Input();return proc
+    monkeypatch.setattr(module.subprocess,'Popen',spawned)
+    transport=module.NativeLocalTransport(machine='localhost',native_computer_uuid='00000000-0000-4000-8000-000000000001')
+    with transport,pytest.raises(type(primary)) as caught:
+        transport.exec_command_wait_bytes(shlex.join([sys.executable,'-c','pass']),stdin=b'x',workdir=str(tmp_path))
+    assert caught.value is primary and len(closes)==2
+    assert processes[0].returncode is not None and all(s.closed for s in (processes[0].stdin,processes[0].stdout,processes[0].stderr))
+
+
+@pytest.mark.parametrize('own_signal',[False,True])
+def test_T4_repair_cleanup_is_local_inside_unrelated_caller_except(monkeypatch,own_signal):
+    import builtins
+    from contextlib import contextmanager
+    from plumpy.process_states import KillInterruption
+    module=backend();real=builtins.open;primary=KillInterruption('own read signal') if own_signal else None
+    secondary=OSError('own close fault');hits=[]
+    @contextmanager
+    def opening(*a,**k):
+        with real(*a,**k) as stream:
+            class Proxy:
+                def read(self,*args):
+                    hits.append('read')
+                    if primary is not None:raise primary
+                    return stream.read(*args)
+            try:yield Proxy()
+            finally:hits.append('secondary_close');raise secondary
+    monkeypatch.setattr(builtins,'open',opening)
+    try:raise RuntimeError('unrelated caller exception')
+    except RuntimeError as ambient:
+        with pytest.raises(type(primary or secondary)) as caught:module._proc_bytes('/proc/self/status',module._Operation())
+        assert caught.value is (primary or secondary) and caught.value is not ambient
+    assert hits[-1]=='secondary_close' and set(hits[:-1])=={'read'}

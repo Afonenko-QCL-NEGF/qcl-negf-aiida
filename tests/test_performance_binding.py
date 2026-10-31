@@ -337,3 +337,17 @@ def test_typed_context_closure_refuses_missing_foreign_duplicate_and_caps(typed,
     elif fault=='metadata':limits=PerformanceLimits(maximum_metadata_bytes=1)
     else:limits=PerformanceLimits(maximum_objects=1)
     with pytest.raises(ContractError):view(typed,selection,limits)
+
+
+def test_T4_outer_allowance_is_nonrefundable_and_precedes_original_query(monkeypatch):
+    from aiida_qcl_negf import native_actor
+    monkeypatch.setattr(native_actor,'read_native_performance_inputs',lambda *a,**k:pytest.fail('original query before admission'))
+    selector=dict(run_uuid='00000000-0000-4000-8000-000000000001',execution_id='explicit',attempt=1,
+        calcjob_uuid='00000000-0000-4000-8000-000000000002')
+    held=module.native_source(**selector,maximum=1)
+    assert held['status']=='unavailable' and held['reason']=='budget_exceeded'
+    credit=module._T4Credit(10000);credit.reserve('first',5000,11)
+    before=credit.spent
+    with pytest.raises(ValueError):credit.reserve('denied',1000,1)
+    assert credit.spent>10000 and credit.spent>before and credit.prepaid_io==12 and credit.failed
+    with pytest.raises(ValueError):credit.reserve('no refund retry',0,0)
