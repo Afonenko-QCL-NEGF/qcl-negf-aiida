@@ -1454,7 +1454,7 @@ def _native_readback(child,expected_result,expected_binding,ledger):
         if not _same(binding,expected):_fail('source_identity_mismatch','native_binding_original_projection')
     ledger.workspaces()
     selection=_native_selection(child,args,raw,_native_pin(*originals['result']),_native_pin(*originals['native_binding']))
-    return selection,binding,raw,args['selection']
+    return selection,binding,raw,plan
 
 
 def _readback_native_outputs(child: orm.CalcJobNode, *, expected_result: dict,
@@ -1466,7 +1466,37 @@ def _readback_native_outputs(child: orm.CalcJobNode, *, expected_result: dict,
         return deepcopy(selection)
 
 
-def _retained_native_result_source(child: orm.CalcJobNode, *, point_id: str,
+def _native_declared_points(plan, execution_id, ledger):
+    """Prepay the fixed original-plan projection before allocating its rows.
+
+    These are declared coordinates, never a used snapshot or native source.
+    The decoded original plan is borrowed from the same complete readback.
+    """
+    keys=('id','execution_id','temperature_K','voltage_per_period_V','branch','order')
+    weight=128;count=0
+    for point in plan['points']:
+        if point['execution_id']!=execution_id:continue
+        count+=1;weight+=128
+        for key in keys:
+            value=point[key]
+            if type(value) is str and any(0xd800<=ord(c)<=0xdfff for c in value):
+                _fail('corrupt_result','native_declared_point_utf8')
+            weight+=_native_weight(key)
+            if type(value) is int:
+                # Binary digit count bounds decimal digits without allocating
+                # a potentially long str before its encoding credit is paid.
+                weight+=128+6*(max(1,value.bit_length())+1)
+            else:weight+=_native_weight(value)
+    # Rows, detached return and UTF8/JSON encoding have separate live copies.
+    # _native_weight includes a six-byte/character encoding upper allowance.
+    ledger.reserve('offline declared point projection/copies',metadata=3*weight+4096)
+    declared=[{key:point[key] for key in keys} for point in plan['points']
+              if point['execution_id']==execution_id]
+    if len(declared)!=count:_fail('source_identity_mismatch','native_declared_point_count')
+    return declared
+
+
+def _retained_native_result_source(child: orm.CalcJobNode, *, point_id: str | None,
                                     binding_uuid: str | None = None, maximum_metadata_bytes: int) -> dict:
     with _native_operation(maximum_metadata_bytes,_NATIVE_IO):
         from aiida.common.links import LinkType
@@ -1474,8 +1504,19 @@ def _retained_native_result_source(child: orm.CalcJobNode, *, point_id: str,
         pin=_native_scalar_value(child.backend,child.uuid,ledger)
         if binding_uuid is not None and pin.get('native_binding',{}).get('node_uuid')!=binding_uuid:
             _fail('source_identity_mismatch','native_binding_expectation')
-        selection,binding,raw,_=_native_readback(child,pin.get('native_result'),pin.get('native_binding'),ledger)
+        selection,binding,raw,plan=_native_readback(child,pin.get('native_result'),pin.get('native_binding'),ledger)
         if pin!=selection:_fail('source_identity_mismatch','native_scalar_selection_changed')
+        if point_id is None:
+            declared=_native_declared_points(plan,selection['execution_id'],ledger)
+            ledger.reserve('offline response encoding/copies',metadata=2*_native_weight(binding)+8*len(raw))
+            response={'status':'available','point':None,'binding':binding,'result_utf8':raw.decode('utf-8'),
+                'native_result':selection['native_result'],'native_binding':selection['native_binding'],
+                'integrity':{'native_contexts':'not_reverified','current_access':'not_checked','scientific_acceptance':'not_assessed'},
+                'declared_points':declared}
+            # Admission precedes the detached whole response copy. All encoding
+            # and projection workspace was prepaid on this same operation.
+            if len(_canonical(response))>MAX_RESPONSE:_fail('budget_exceeded','native_catalog_response_bound')
+            return deepcopy(response)
         rows=[r for r in binding['points'] if r['point_id']==point_id]
         if len(rows)!=1:_fail('source_identity_mismatch','native_exact_selected_point')
         ledger.reserve('offline response encoding/copies',metadata=2*_native_weight(binding)+8*len(raw))

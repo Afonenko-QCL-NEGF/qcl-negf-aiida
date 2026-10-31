@@ -831,3 +831,207 @@ def test_Q1T_default_complete_64KiB_with_original_roles(packet,tmp_path,monkeypa
                 file_operations=budget.files,command_calls=budget.calls,protocol_close_calls=len(p.calls),gross_debits=groups)
     record_property("q1t_default",json.dumps(report,sort_keys=True))
     assert budget.reads.remaining>0 and budget.io_remaining>0 and len(p.calls)==1
+
+
+# R1: actual original ORM readback of a manufactured immutable pair. No native
+# payload, source access context, solver, or installed creator qualification.
+@pytest.fixture
+def r1_catalog_graph(request):
+    from aiida_qcl_negf import saved_sources
+    from test_native_binding import SEED
+    from test_native_parser import b_metadata_graph, raw_pin
+
+    seed_graph=request.getfixturevalue("native_graph")
+
+    def make(*, count=3, recorded=1, kind="absent", plan_size=None, fault=None, reason_padding=0, branch=None, integer_digits=0):
+        plan=decode(seed_graph["raw_plan"])
+        original=deepcopy(plan["points"][0]);points=[]
+        for i in range(count):
+            point=deepcopy(original);point.update(id=f"p{i}",order=i+1,branch=branch or ("reverse" if i%2 else "forward"),
+                temperature_K=70.+i,voltage_per_period_V=-0.0 if i==0 else i*.01)
+            if integer_digits:
+                huge=10**integer_digits+i
+                point.update(temperature_K=huge,voltage_per_period_V=huge,order=huge)
+            points.append(point)
+        plan["points"]=list(points);plan["executions"][0]["point_ids"]=[p["id"] for p in points]
+        plan["computation_count"]=count+1
+        # A second frozen execution must not leak into the catalog projection.
+        extra=deepcopy(plan["executions"][0]);extra.update(id="other",point_ids=["foreign"])
+        plan["executions"].append(extra)
+        foreign=deepcopy(original);foreign.update(id="foreign",execution_id="other",order=1)
+        plan["points"].insert(1,foreign)
+        raw_plan=encode(plan)
+        if plan_size is not None:
+            assert len(raw_plan)<=plan_size
+            raw_plan+=b" "*(plan_size-len(raw_plan))
+        f=b_metadata_graph(seed_graph,raw_plan);child=f["child"]
+        result=deepcopy(SEED["series"])
+        result["executions"][0]["point_ids"]=[p["id"] for p in points]
+        result.update(expected_point_count=count,available_point_count=recorded,points=[],attempt_history=[])
+        epoch={"source_epoch": "c1-"+child.uuid.replace("-","")+"-"+f["native"].uuid.replace("-","")+"-19"}
+        for point in points[:recorded]:
+            row=deepcopy(SEED["series"]["points"][0]);row.update(id=point["id"],attempt=9)
+            row["coordinates"]={k:point[k] for k in ("temperature_K","voltage_per_period_V","branch","order")}
+            row["data"]["phase_source"]={"status": "unavailable","session_id": None,"current_path": None,"reason": "not_recorded"}
+            if kind!="absent":
+                source=deepcopy(SEED["checkpoint"]["source"])
+                source["selected_state"]["identity"].update(point_id=point["id"],attempt="9",plan_sha256=hashlib.sha256(raw_plan).hexdigest())
+                source.update(kind=kind,relation="current_point_attempt",reason="final_not_published" if kind=="checkpoint" else None)
+                if kind=="final":
+                    source["diagnostics"]={"path": "diagnostics.h5","bytes": "1","sha256": "d"*64,"schema": "qcl-negf-physics-analysis-v5","media_type": "application/x-hdf5"}
+                    source["observations"]={"path": "observations.h5","bytes": "1","sha256": "e"*64,"schema": "qcl-negf-physics-analysis-v5","media_type": "application/x-hdf5"}
+                row["data"]["native_source"]=source
+            if reason_padding:row["data"]["native_source"]["reason"]='"'*reason_padding
+            result["points"].append(row)
+        result["attempt_history"]=deepcopy(result["points"])
+        raw=b" \n"+encode(result)+b"\n"
+        def store_file(data,label):
+            node=orm.SinglefileData(file=io.BytesIO(data),filename=label+".json")
+            node.base.links.add_incoming(child,LinkType.CREATE,label);return node.store()
+        selection={"run_uuid": f["run"].uuid,"execution_id": "execution","attempt": 7,"calcjob_uuid": child.uuid}
+        def project(row):
+            source=row["data"]["native_source"]
+            return {"point_id": row["id"],"point_attempt": row["attempt"],"source": deepcopy(source),
+                "source_invocation": None if kind=="absent" else epoch,
+                "creator": None if kind=="absent" else {"calcjob_uuid": child.uuid,"binding_uuid": None},
+                "plan_point_id": row["id"],"coordinates": deepcopy(row["coordinates"])}
+        binding={"schema": "qcl-negf.aiida-native-binding.v1","selection": selection,
+            "input_plan": f["declaration"]["input_plan"],"source_graph": f["declaration"]["source_graph"],
+            "storage": f["declaration"]["storage"],"raw_result": {"bytes": str(len(raw)),"sha256": hashlib.sha256(raw).hexdigest()},
+            "points": [project(row) for row in result["points"]],"attempt_history": [project(row) for row in result["attempt_history"]],
+            "integrity": dict(saved_sources._NATIVE_INTEGRITY)}
+        if fault=="creator" and binding["points"]:
+            binding["points"][0]["creator"]={"calcjob_uuid": seed_graph["calc"].uuid,"binding_uuid": None}
+        if fault=="coordinates" and binding["points"]:binding["points"][0]["coordinates"]["temperature_K"]+=1
+        result_node=store_file(raw,"result");binding_raw=encode(binding);binding_node=store_file(binding_raw,"native_binding")
+        scalar={"calcjob_uuid": child.uuid,"execution_id": "execution","attempt": 7,"result_sha256": hashlib.sha256(raw).hexdigest(),
+            "commits": {},"recovery_commit_sha256": None,"native_result": raw_pin(result_node,raw),"native_binding": raw_pin(binding_node,binding_raw),
+            "performance_status": "unavailable","performance_reason": "native_technical_context_unavailable"}
+        node=orm.Dict(dict=scalar);node.base.links.add_incoming(child,LinkType.CREATE,"selection");node.store()
+        folder=orm.FolderData();folder.base.repository.put_object_from_filelike(io.BytesIO(raw+b" " if fault=="raw" else raw),"series_result.json")
+        folder.base.links.add_incoming(child,LinkType.CREATE,"retrieved");folder.store()
+        return dict(f,points=points,raw=raw,binding=binding,selection=selection,scalar=scalar)
+    return make
+
+
+def _r1_get(f, point_id=None, **extra):
+    from aiida_qcl_negf import service
+    return service.get_native_result_source(f["run"].uuid,"execution",attempt=7,
+        calcjob_uuid=f["child"].uuid,point_id=point_id,**extra)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("count,recorded,plan_size",[(3,1,None),(3,0,None),(260,1,None),(3,1,113111)])
+def test_R1_public_catalog_original_full_plan_order_and_uncomputed(r1_catalog_graph,monkeypatch,record_property,count,recorded,plan_size):
+    from aiida_qcl_negf import saved_sources
+    f=r1_catalog_graph(count=count,recorded=recorded,plan_size=plan_size)
+    reads=[];readback=saved_sources._native_readback
+    def once(*args,**kwargs):
+        reads.append(True);return readback(*args,**kwargs)
+    monkeypatch.setattr(saved_sources,"_native_readback",once)
+    monkeypatch.setattr(native_backend,"open_native_selected_sources",lambda *a,**k:pytest.fail("catalog opened native source"))
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,saved_sources._NATIVE_IO) as ledger:
+        value=_r1_get(f)
+        record_property("r1_catalog_ledger",json.dumps({"plan_bytes": len(f["raw_plan"]),"count": count,
+            "metadata_used": saved_sources._NATIVE_METADATA-ledger.metadata,"remaining_metadata": ledger.metadata,
+            "io_used": saved_sources._NATIVE_IO-ledger.io,"reservations": ledger.reservations}))
+    assert set(value)=={"status","point","binding","result_utf8","native_result","native_binding","integrity","declared_points"}
+    assert len(reads)==1
+    assert value["point"] is None and value["binding"]==f["binding"] and value["result_utf8"]==f["raw"].decode()
+    assert value["native_result"]==f["scalar"]["native_result"] and value["native_binding"]==f["scalar"]["native_binding"]
+    assert [p["id"] for p in value["declared_points"]]==["p"+str(i) for i in range(count)]
+    assert value["declared_points"][0]=={"id": "p0","execution_id": "execution","temperature_K": 70.,"voltage_per_period_V": -0.0,"branch": "forward","order": 1}
+    assert len(value["binding"]["points"])==recorded
+    assert len(value["declared_points"])>len(value["binding"]["points"])
+    value["declared_points"][0]["branch"]="changed"
+    assert _r1_get(f)["declared_points"][0]["branch"]=="forward"
+    assert len(reads)==2
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("kind",["absent","checkpoint","final"])
+def test_R1_public_catalog_preserves_source_creator_and_str_mode(r1_catalog_graph,kind,monkeypatch):
+    f=r1_catalog_graph(kind=kind)
+    monkeypatch.setattr(native_backend,"open_native_selected_sources",lambda *a,**k:pytest.fail("offline source access"))
+    catalog=_r1_get(f);point=_r1_get(f,"p0")
+    assert set(point)=={"status","point","binding","result_utf8","native_result","native_binding","integrity"}
+    assert point["point"]==catalog["binding"]["points"][0]
+    assert point["point"]["source"]["kind"]==kind
+    assert point["point"]["point_attempt"]==9 and point["binding"]["selection"]["attempt"]==7
+    if kind!="absent":
+        assert point["point"]["creator"]=={"calcjob_uuid": f["child"].uuid,"binding_uuid": None}
+        assert point["point"]["source_invocation"]["source_epoch"].startswith("c1-"+f["child"].uuid.replace("-","")+"-")
+    assert catalog["integrity"]=={"native_contexts": "not_reverified","current_access": "not_checked","scientific_acceptance": "not_assessed"}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault",["creator","raw","coordinates","binding_uuid"])
+def test_R1_catalog_rechecks_original_creator_raw_coordinate_and_binding(r1_catalog_graph,fault):
+    from aiida_qcl_negf import saved_sources
+    f=r1_catalog_graph(kind="checkpoint",fault=fault)
+    with pytest.raises((saved_sources.SourceError,ValueError)):
+        _r1_get(f,**({"binding_uuid":"00000000-0000-4000-8000-000000000099"} if fault=="binding_uuid" else {}))
+
+
+@pytest.mark.integration
+def test_R1_omitted_point_remains_required_and_no_row_is_not_absent(r1_catalog_graph):
+    from aiida_qcl_negf import saved_sources, service
+    f=r1_catalog_graph(recorded=0)
+    with pytest.raises(TypeError):service.get_native_result_source(f["run"].uuid,"execution",attempt=7,calcjob_uuid=f["child"].uuid)
+    with pytest.raises(saved_sources.SourceError):_r1_get(f,"p0")
+    assert _r1_get(f)["binding"]["points"]==[]
+
+
+@pytest.mark.integration
+def test_R1_low_remaining_credit_refuses_before_projection_response_copy(r1_catalog_graph,monkeypatch):
+    from aiida_qcl_negf import saved_sources
+    f=r1_catalog_graph();readback=saved_sources._native_readback;copy=saved_sources.deepcopy;copied=[]
+    def held(*args,**kwargs):
+        result=readback(*args,**kwargs);ledger=args[3]
+        ledger.reserve("fixture prior retained allocation",metadata=ledger.metadata-1)
+        return result
+    def copying(value,*args,**kwargs):
+        if inspect.currentframe().f_back.f_code.co_name=="_retained_native_result_source":copied.append(True)
+        return copy(value,*args,**kwargs)
+    monkeypatch.setattr(saved_sources,"_native_readback",held)
+    monkeypatch.setattr(saved_sources,"deepcopy",copying)
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,saved_sources._NATIVE_IO) as ledger:
+        with pytest.raises(saved_sources.SourceError) as caught:_r1_get(f)
+        assert caught.value.detail=="offline declared point projection/copies"
+        assert ledger.failed and ledger.metadata==1 and copied==[]
+        with pytest.raises(saved_sources.SourceError):_r1_get(f)
+        assert ledger.metadata==1
+
+
+@pytest.mark.integration
+def test_R1_complete_catalog_json_bound_does_not_truncate_or_change_str_mode(r1_catalog_graph):
+    from aiida_qcl_negf import saved_sources
+    f=r1_catalog_graph(reason_padding=240000)
+    # Both original files remain below their individual 1 MiB bounds; escaping
+    # of raw JSON in the complete response is separately significant.
+    assert len(f["raw"])<1048576 and len(encode(f["binding"]))<1048576
+    with pytest.raises(saved_sources.SourceError) as caught:_r1_get(f)
+    assert caught.value.code=="budget_exceeded" and caught.value.detail=="native_catalog_response_bound"
+    assert _r1_get(f,"p0")["result_utf8"]==f["raw"].decode()
+
+
+@pytest.mark.integration
+def test_R1_declared_utf8_and_binary64_zero_are_preserved(r1_catalog_graph):
+    import struct
+    f=r1_catalog_graph(recorded=0,branch="ветвь🙂")
+    points=_r1_get(f)["declared_points"]
+    assert [p["branch"] for p in points]==["ветвь🙂"]*3
+    assert struct.pack(">d",points[0]["voltage_per_period_V"]).hex()=="8000000000000000"
+    assert points[2]["order"]==3 and points[2]["temperature_K"]==72.
+
+
+@pytest.mark.integration
+def test_R1_large_uncomputed_integer_encoding_is_prepaid(r1_catalog_graph):
+    from aiida_qcl_negf import saved_sources
+    f=r1_catalog_graph(recorded=0,integer_digits=2000)
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,saved_sources._NATIVE_IO) as ledger:
+        value=_r1_get(f)
+    reserved=[v[1] for v in ledger.reservations if v[0]=="offline declared point projection/copies"]
+    encoded=encode(value["declared_points"])
+    assert len(reserved)==1 and reserved[0]>=3*len(encoded)
+    assert value["declared_points"][0]["temperature_K"]==10**2000
