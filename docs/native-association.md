@@ -319,3 +319,60 @@ The owning32MiB cache, five6MiB outward and three8MiB fresh allowances still cov
 the pinned current domains. Current sorted36-schema raw bytes total531983;
 maximum prior-prefix plus decode forecast is7982538W, below8MiB.
 Prior e39 corpus/census numbers above remain historical, not current-source totals.
+
+## Original execution catalog metadata
+
+The existing owner operation keeps its required keyword and forwarding signature:
+
+```python
+get_native_result_source(run_uuid, execution_id, *, attempt, calcjob_uuid,
+                         point_id, binding_uuid=None)
+```
+
+An explicit `point_id=None` returns the original execution catalog. Omitting
+`point_id` is still an error. A string still selects exactly one recorded point,
+with the existing seven response keys and source/creator checks. The catalog
+has those same keys, with `point=None`, plus `declared_points`:
+
+```text
+{status: "available", point: null, binding: <original whole binding>,
+ result_utf8: <exact original raw UTF-8>, native_result: <original NodePin>,
+ native_binding: <original NodePin>, integrity: <readback markers>,
+ declared_points: [{id, execution_id, temperature_K, voltage_per_period_V,
+                    branch, order}, ...]}
+```
+
+`declared_points` contains only the selected execution, in the exact original
+frozen-plan order. These are declarations, not a used snapshot or a result.
+The original binding/raw result still contains only recorded rows. An
+uncomputed declared point therefore has no corresponding row; it is not a
+manufactured `absent` native source. A recorded `absent`, checkpoint or final
+source keeps its exact source, StateRef, invocation and creator. Native point
+attempts remain distinct from the integer transport attempt. The existing
+`binding.input_plan` and `binding.source_graph` are the genuine original node
+pins; the catalog does not mint new provenance identifiers.
+
+Both modes use one complete original readback: scalar CREATE, whole
+result/binding/retrieved raw bytes, original frozen plan/graph/inputs, selected
+and history rows, and all original creator relations. Optional `binding_uuid`
+is checked before that readback. A missing original pair remains unavailable;
+no first-point or legacy fallback supplies a catalog. No native payload, current
+NFS access, scientific revalidation or new storage authority is obtained.
+`integrity.native_contexts=not_reverified`, `current_access=not_checked` and
+`scientific_acceptance=not_assessed` retain their original scopes.
+
+The already decoded original plan is reused inside the same operation. Before
+constructing the projection, its count, field weights and UTF-8 validity are
+checked. Large integer encoding is bounded by its bit length before creating
+a decimal string; no new scientific/schema range is imposed. Three
+projection/copy/encoding allowances are prepaid on the
+existing nonrefundable ledger. The complete catalog JSON is bounded to 2 MiB
+before its detached response copy; oversize returns `budget_exceeded` without
+truncation. Original 1 MiB file bounds and 320 MiB metadata/256 MiB scoped I/O
+allowances remain. The historical L1 limit of 256 points does not apply to this
+native catalog. These are source/metadata controls, not measured RSS, physical
+DB I/O, current RO access or installed producer/scientific qualification.
+
+The consumer can reuse this one whole binding read for a finite page. Pagination,
+J(V) brief reads, RO child lifetime and UI contracts belong to Portal and Results;
+this operation does not read every point's scientific payload.
