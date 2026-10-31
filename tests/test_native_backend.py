@@ -103,7 +103,7 @@ def test_command_timeout_preserves_original_and_no_fresh_batch_budget(tmp_path,m
         transport.exec_command_wait_bytes(f"{sys.executable} -c 'import time;time.sleep(30)'",workdir=str(tmp_path))
     assert isinstance(caught.value.__cause__,TimeoutError)
     with transport._operation() as budget:
-        budget.before(8*1024*1024-1)
+        budget.before(budget.reads.remaining-1)
         with pytest.raises((PauseInterruption,ValueError)):
             with transport._operation() as nested:
                 assert nested is budget
@@ -289,11 +289,12 @@ def test_closed_claim_bool_is_not_integer_even_when_python_equality_matches():
     module=backend();identifier="00000000-0000-4000-8000-000000000003"
     names=("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")
     controls=[dict(path=name,bytes=0,sha256="a"*64) for name in names]
-    value=reply(identifier,"closed");value.update(receipt_ref=identifier+"/close.json",controls=deepcopy(controls))
+    technical=dict(status="absent",path="performance-source.json",reason="not_published")
+    value=reply(identifier,"closed");value.update(version=3,technical_control=technical,receipt_ref=identifier+"/close.json",controls=deepcopy(controls))
     value["job"].update(node_name="worker",start_time="2026-10-29T00:00:00",worker_machine_id="c"*32,worker_boot_id="00000000-0000-4000-8000-000000000004")
     value["controls"][0]["bytes"]=False
     assert value["controls"]==controls  # Python equality is not this wire contract.
-    with pytest.raises(PauseInterruption):module._reply(encode(value),identifier,state="closed",controls=controls,job_id="321")
+    with pytest.raises(PauseInterruption):module._reply(encode(value),identifier,state="closed",controls=controls,technical_control=technical,job_id="321")
 
 
 @pytest.mark.parametrize("asynchronous",[False,True])
@@ -312,3 +313,104 @@ def test_q1_context_secondary_close_error_preserves_original(monkeypatch,asynchr
     finally:
         monkeypatch.setattr(transport,"close",close)
         if transport.is_open:transport.close()
+
+
+@pytest.mark.parametrize("technical",[
+    None,False,{},
+    {"status":"absent","path":"performance-source.json","reason":"unknown"},
+    {"status":"absent","path":"performance-source.json","reason":"not_published","bytes":"0"},
+    {"status":"present","path":"performance-source.json","bytes":False,"sha256":"a"*64},
+    {"status":"present","path":"performance-source.json","bytes":0,"sha256":"a"*64},
+    {"status":"present","path":"performance-source.json","bytes":"00","sha256":"a"*64},
+    {"status":"present","path":"performance-source.json","bytes":"1048577","sha256":"a"*64},
+    {"status":"present","path":"performance-source.json","bytes":"18446744073709551616","sha256":"a"*64},
+    {"status":"present","path":"../performance-source.json","bytes":"0","sha256":"a"*64},
+    {"status":"present","path":"performance-source.json","bytes":"0","sha256":"A"*64},
+    {"status":"present","path":"performance-source.json","bytes":"0","sha256":"a"*64,"extra":True},
+],ids=["null","bool","empty","reason","absent_extra","bool_bytes","number_bytes","leading_zero","cap","overflow","path","hash","present_extra"])
+def test_Q1T_strict_technical_operand_rejects_unobserved_or_malformed(technical):
+    module=backend()
+    with pytest.raises(module.native_actor.NativeActorUnavailable):module.native_actor._technical_control(technical)
+
+
+@pytest.mark.parametrize("fault",["v1","v2","bool_version","null_observation","mismatch","extra","hold","wrong_job","noncanonical"])
+def test_Q1T_close3_has_no_downgrade_or_projection_substitution(fault):
+    module=backend();identifier="00000000-0000-4000-8000-000000000003"
+    controls=[dict(path=name,bytes=0,sha256="a"*64) for name in ("series_result.json","native-selection.json","_scheduler-stdout.txt","_scheduler-stderr.txt")]
+    technical=dict(status="absent",path="performance-source.json",reason="not_published")
+    value=reply(identifier,"closed");value.update(version=3,receipt_ref=identifier+"/close.json",controls=controls,technical_control=technical)
+    value["job"].update(node_name="worker",start_time="2026-10-29T00:00:00",worker_machine_id="c"*32,worker_boot_id="00000000-0000-4000-8000-000000000004")
+    if fault in ("v1","v2","bool_version"):value["version"]={"v1":1,"v2":2,"bool_version":True}[fault]
+    elif fault=="null_observation":value["technical_control"]=None
+    elif fault=="mismatch":value["technical_control"]=dict(status="present",path="performance-source.json",bytes="0",sha256="a"*64)
+    elif fault=="extra":value["extra"]=None
+    elif fault=="hold":value.update(state="hold",controls=None,technical_control=None,reason="not_observed")
+    elif fault=="wrong_job":value["job"]["job_id"]="322"
+    raw=encode(value)
+    if fault=="noncanonical":raw=b" "+raw
+    with pytest.raises((PauseInterruption,module.native_actor.NativeActorUnavailable)):
+        module._reply(raw,identifier,state="closed",controls=controls,technical_control=technical,job_id="321")
+
+
+@pytest.mark.parametrize("kind",["metadata","io"])
+def test_Q1T_one_byte_short_read_credit_refuses_before_byte_io(tmp_path,monkeypatch,kind):
+    module=backend();(tmp_path/"performance-source.json").write_bytes(b"1234")
+    budget=module._Operation();tree=module._Tree(str(tmp_path),budget)
+    if kind=="metadata":budget.reads.remaining=1024+8*5-1
+    else:budget.io_remaining=4  # The complete read also admits its EOF request.
+    monkeypatch.setattr(module.os,"read",lambda *args:(_ for _ in ()).throw(AssertionError("unpaid byte IO")))
+    try:
+        with pytest.raises(PauseInterruption):tree.read("performance-source.json",1048576,optional=True)
+        assert tree.technical_fd is None
+    finally:tree.close()
+
+
+@pytest.mark.parametrize("role,bad",[("plan",1048577),("source_graph",65537),("native_execution",65537),("submit_script",65537),("plan",True),("source_graph",-1)])
+def test_Q1T_role_bound_refuses_before_second_actor_read(monkeypatch,role,bad):
+    module=backend();counts={name:{"bytes":0,"sha256":"a"*64} for name in ("plan","source_graph","native_execution","submit_script")}
+    counts[role]["bytes"]=bad
+    monkeypatch.setattr(module.native_actor,"load_native_launch",lambda *a,**k:{"files":counts})
+    monkeypatch.setattr(module.native_actor,"read_native_execution",lambda *a,**k:(_ for _ in ()).throw(AssertionError("unadmitted second read")))
+    with pytest.raises(PauseInterruption,match="q1_actor_input_bound"):
+        module._Packet(None,"00000000-0000-4000-8000-000000000001",module._Operation())
+
+
+def test_Q1T_fixed_leaf_exact_read_workspace_and_eof_credit(tmp_path):
+    module=backend();(tmp_path/"performance-source.json").write_bytes(b"1234")
+    budget=module._Operation();tree=module._Tree(str(tmp_path),budget)
+    # Hand derived: 1024 open + 8*(4 bytes + EOF) + 512 + 2*23 binding.
+    budget.reads.remaining=1622;budget.io_remaining=5
+    try:
+        assert tree.read("performance-source.json",1048576,optional=True)==b"1234"
+        assert budget.reads.remaining==0 and budget.io_remaining==0
+    finally:tree.close()
+
+
+def test_Q1T_actor_metadata_ceiling_rejects_one_above_before_profile(monkeypatch):
+    module=backend()
+    monkeypatch.setattr(module.native_actor,"_orm",lambda:(_ for _ in ()).throw(AssertionError("profile touched")))
+    with pytest.raises(module.native_actor.NativeActorUnavailable,match="metadata_budget"):
+        module.native_actor._Reads(16777217)
+
+
+def test_Q1T_optional_read_cancel_keeps_primary_with_secondary_fd_close_failure(tmp_path,monkeypatch):
+    module=backend();(tmp_path/"performance-source.json").write_bytes(b"opaque")
+    budget=module._Operation();tree=module._Tree(str(tmp_path),budget)
+    primary=KeyboardInterrupt("original optional read cancellation");opened=[]
+    opening,reading,closing=module.os.open,module.os.read,module.os.close
+    def open_leaf(name,*args,**kwargs):
+        fd=opening(name,*args,**kwargs)
+        if name=="performance-source.json":opened.append(fd)
+        return fd
+    def read_leaf(fd,*args):
+        if fd in opened:raise primary
+        return reading(fd,*args)
+    def close_leaf(fd):
+        closing(fd)
+        if fd in opened:raise OSError("secondary file FD cleanup unknown")
+    monkeypatch.setattr(module.os,"open",open_leaf);monkeypatch.setattr(module.os,"read",read_leaf);monkeypatch.setattr(module.os,"close",close_leaf)
+    try:
+        with pytest.raises(KeyboardInterrupt) as caught:tree.read("performance-source.json",1048576,optional=True)
+        assert caught.value is primary and any("file FD cleanup failed" in note for note in primary.__notes__)
+    finally:
+        monkeypatch.setattr(module.os,"close",closing);tree.close()
