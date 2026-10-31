@@ -18,6 +18,19 @@ C1 = "10dd2a4c-031b-425c-90b8-2f7ea564d313"
 C2 = "20dd2a4c-031b-425c-90b8-2f7ea564d313"
 
 
+def plan_bytes():
+    # Exact synthetic plan-only Root110 CLI output: Solver47f/Core01d/Runner9617.
+    # Planning/passport source is unchanged through Runnerc8; no solver run or
+    # c8 runtime claim, no scientific arrays, no reconstructed passport digest.
+    raw=(Path(__file__).parent/'fixtures/model-help/runner-9617-plan.json').read_bytes()
+    assert len(raw)==126463
+    assert hashlib.sha256(raw).hexdigest()=='f9717a93436f1cdff83744fe5b37d4eb9f93349a71c15f573c68cc60eb17deb2'
+    return raw
+
+
+def modern_plan():return json.loads(plan_bytes())
+
+
 class Outputs(dict):
     def __getattr__(self, name):
         try:
@@ -29,7 +42,7 @@ class Outputs(dict):
 @pytest.fixture
 def source(monkeypatch):
     # Exact existing ordinary nested producer shape: no flat point.configuration.
-    raw = (Path(__file__).parent / "fixtures/plan.json").read_bytes()
+    raw = plan_bytes()
     handles, events = [], []
 
     class Input:
