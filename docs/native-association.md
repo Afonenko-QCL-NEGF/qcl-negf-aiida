@@ -159,9 +159,29 @@ requires existing actual `INPUT_CALC parent_binding` hops, genuine parent
 hop must retain the same selected source/invocation and end at its original
 creator. Missing or cyclic chains remain unavailable with the missing operand.
 This consumer does not add a WorkChain input, retry or recovery frontier. Legacy
-unmapped epochs remain `creator_proof_unavailable`. Restored final evidence
-still requires an original immediate-parent manifest/checkpoint context; the
-current consumer reports `qualified_immediate_parent_context` unavailable.
+unmapped epochs remain `creator_proof_unavailable`.
+
+For completed restoration the existing public Results metadata factory returns
+both original immediate-parent documents in the final observations descriptor,
+after exact lineage/FileRef authentication, source stability checks and all
+reader closes. B projects those detached dictionaries into the existing
+`parent_manifest`/`parent_checkpoint` context fields and repeats the public
+outward validator. It neither rereads parent files nor creates a parent Data
+node. Missing fields, a partial pair or a non-dictionary required parent fails
+`source_unavailable / qualified_immediate_parent_context`; produced observations
+require both fields null, and checkpoint contexts have no final descriptor.
+The public five-element Results tuple, stored binding schema and creator
+operands are unchanged.
+
+These two dictionary references alias the already prepaid detached Results
+objects. The existing retained slot, complete argument weight and binder-copy
+admission include their trees; allowances are unchanged. Scientific immediate
+parent identity is independent of the selected source's actual CalcJob origin
+and of any ORM `parent_binding` chain. In particular the literal Results
+`restored-epoch` fixture can pass this source-context bridge and still correctly
+fail creator proof. It is never relabelled as a native c1 producer. Genuine
+installed completed-restore producer/access/close evidence remains a separate
+native gate.
 
 Retained reads repeat immutable ORM inputs, original result/binding/retrieved
 bytes, scalar selection CREATE/pins and c1/input/script mapping, including an

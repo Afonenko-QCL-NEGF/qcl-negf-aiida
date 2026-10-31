@@ -738,21 +738,171 @@ def test_two_actual_manifest_state_refs_do_not_lose_history_to_fit_budget(scient
     assert calls==[True]
 
 
-@pytest.mark.integration
-def test_original_completed_restore_requires_public_immediate_parent_context(scientific_access,monkeypatch,tmp_path):
+@pytest.fixture
+def completed_access(scientific_access,monkeypatch,tmp_path):
+    """Original Results lineage fixture, never relabelled as a c1 producer."""
     import consumer_context_fixture as fixtures
     f=scientific_access;original_fixture=fixtures.fixture;root=tmp_path/'completed';root.mkdir()
     monkeypatch.setattr(fixtures,'fixture',lambda root:original_fixture(root,plan_kind='scientific_plan_v2'))
     state,observations,value,_,_,_=fixtures.completed_fixture(root)
     source=dict(schema='qcl-negf.native-point-source.v1',kind='final',artifact_root='.',relation='current_point_attempt',selected_state=state,
         diagnostics=value['diagnostics'],observations=observations,reason=None)
+    manifest=json.loads((root/state['manifest']['path']).read_bytes())
+    assert (root/f['refs']['plan']['path']).read_bytes()==f['child'].inputs.plan.get_content().encode()
+    assert manifest['invocation']==dict(source_epoch='restored-epoch')
+    f.update(root=root,source=source,manifest=manifest)
     row=f['result']['points'][0];row['attempt']=2;row['data']['native_source']=source
     f['result']['attempt_history']=deepcopy(f['result']['points']);raw=encode(f['result']);retrieved(f['child'],raw)
     monkeypatch.setattr(native_backend,'open_native_selected_sources',lambda *a,**k:access(raw,((root,source,f['refs']['plan'],f['refs']['model']),)))
+    return f,raw
+
+
+@pytest.mark.integration
+def test_original_completed_restore_public_parent_context_after_successful_close(completed_access,monkeypatch):
+    from qcl_negf_results.state import StateReader
+    f,_=completed_access;closed=[];returned=[]
+    close=StateReader.close;describe=native_metadata.describe_native_metadata_context
+    def closing(reader):
+        close(reader);closed.append(reader)
+    def describing(*args,**kwargs):
+        result=describe(*args,**kwargs)
+        assert len(result)==5 and closed and all(r._closed and not r._handles for r in closed)
+        returned.append(result[-1]);return result
+    monkeypatch.setattr(StateReader,'close',closing)
+    monkeypatch.setattr(native_metadata,'describe_native_metadata_context',describing)
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as ledger:
+        args=saved_sources._native_inputs(f['child'],ledger)
+        context=saved_sources._native_contexts(f['root'],f['source'],f['refs']['plan'],f['refs']['model'],args,ledger)
+        assert [r[0] for r in ledger.reservations].count('Results detached retained slot')==1
+        assert not ledger.failed
+    parent=f['manifest']['lineage']['parent_state']
+    parent_manifest=json.loads((f['root']/parent['manifest']['path']).read_bytes())
+    parent_checkpoint=json.loads((f['root']/parent_manifest['checkpoint']['path']).read_bytes())
+    assert context['parent_manifest']==parent_manifest and context['parent_checkpoint']==parent_checkpoint
+    assert context['parent_manifest'] is returned[0].parent_manifest
+    assert context['parent_checkpoint'] is returned[0].parent_checkpoint
+    assert context['manifest']['invocation']==dict(source_epoch='restored-epoch')
+    assert context['parent_manifest']['invocation']==dict(source_epoch='epoch')
+    assert context['manifest']['identity']['attempt']=='2' and parent['identity']['attempt']=='1'
+    assert set(f['child'].outputs)=={'retrieved'}
+
+
+@pytest.mark.integration
+def test_original_completed_restore_without_c1_still_requires_creator(completed_access,monkeypatch):
+    f,raw=completed_access;constructors=[];lifetime=[]
+    @contextmanager
+    def provider(*args,**kwargs):
+        lifetime.append('enter')
+        try:yield raw,((f['root'],f['source'],f['refs']['plan'],f['refs']['model']),),None
+        finally:lifetime.append('exit')
+    monkeypatch.setattr(native_backend,'open_native_selected_sources',provider)
+    monkeypatch.setattr(orm.SinglefileData,'__init__',lambda *a,**k:constructors.append(True))
     with pytest.raises(saved_sources.SourceError) as caught:
         saved_sources._prepare_native_outputs(f['child'],raw,maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
-    assert caught.value.code=='source_unavailable' and caught.value.detail=='qualified_immediate_parent_context'
+    assert caught.value.code=='creator_proof_unavailable'
+    assert caught.value.detail==[dict(execution_id='exec',point_id='point',point_attempt=2,
+        operand='original_invocation_calcjob_origin',invocation=dict(source_epoch='restored-epoch'))]
+    assert lifetime==['enter','exit'] and constructors==[]
     assert set(f['child'].outputs)=={'retrieved'}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('fault',['old_descriptor','missing_pair','missing_manifest','missing_checkpoint','foreign_manifest','foreign_checkpoint'])
+def test_completed_restore_incompatible_public_parent_context_is_not_accepted(completed_access,monkeypatch,fault):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    f,raw=completed_access;describe=native_metadata.describe_native_metadata_context;closed=[]
+    def incompatible(*args,**kwargs):
+        values=describe(*args,**kwargs);observation=values[-1];closed.append(True)
+        if fault=='old_descriptor':
+            observation=SimpleNamespace(**{k:v for k,v in vars(observation).items() if not k.startswith('parent_')})
+        elif fault.startswith('missing'):
+            observation=replace(observation,**{k:None for k in ('parent_manifest','parent_checkpoint')
+                if fault=='missing_pair' or k==fault.replace('missing_','parent_')})
+        else:
+            key=fault.replace('foreign_','parent_');value=deepcopy(getattr(observation,key))
+            value['identity']['run_id']='foreign-run'
+            observation=replace(observation,**{key:value})
+        return (*values[:-1],observation)
+    monkeypatch.setattr(native_metadata,'describe_native_metadata_context',incompatible)
+    with pytest.raises((saved_sources.SourceError,ContractError)) as caught:
+        saved_sources._prepare_native_outputs(f['child'],raw,maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+    if fault.startswith('foreign'):
+        assert isinstance(caught.value,ContractError)
+    else:
+        assert caught.value.code=='source_unavailable' and caught.value.detail=='qualified_immediate_parent_context'
+    assert closed==[True] and set(f['child'].outputs)=={'retrieved'}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('kind',['checkpoint','final'])
+def test_nonrestored_public_context_has_no_parent(scientific_access,kind):
+    f=scientific_access;source=f['source']
+    if kind=='checkpoint':source.update(kind=kind,diagnostics=None,observations=None,reason='final_not_published')
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as ledger:
+        args=saved_sources._native_inputs(f['child'],ledger)
+        context=saved_sources._native_contexts(f['root'],source,f['refs']['plan'],f['refs']['model'],args,ledger)
+    assert context['parent_manifest'] is None and context['parent_checkpoint'] is None
+    assert (context['observations'] is None)==(kind=='checkpoint')
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('field',['parent_manifest','parent_checkpoint'])
+def test_produced_public_context_cannot_adopt_parent(scientific_access,monkeypatch,field):
+    from dataclasses import replace
+    f=scientific_access;describe=native_metadata.describe_native_metadata_context
+    def foreign_parent(*args,**kwargs):
+        values=describe(*args,**kwargs)
+        return (*values[:-1],replace(values[-1],**{field:dict(unrelated=True)}))
+    monkeypatch.setattr(native_metadata,'describe_native_metadata_context',foreign_parent)
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as ledger:
+        args=saved_sources._native_inputs(f['child'],ledger)
+        with pytest.raises(saved_sources.SourceError) as caught:
+            saved_sources._native_contexts(f['root'],f['source'],f['refs']['plan'],f['refs']['model'],args,ledger)
+    assert caught.value.code=='source_unavailable' and caught.value.detail=='qualified_immediate_parent_context'
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('fault',['read_error','cancel','close_error','memory_error','runtime_error','assertion_error'])
+def test_completed_restore_original_parent_failure_preserves_primary(completed_access,monkeypatch,fault):
+    from qcl_negf_results.state import StateReader
+    f,raw=completed_access;read=StateReader._json;close=StateReader.close;closed=[];constructors=[]
+    primary={'read_error':ContractError('original parent read','corrupt_result'),
+        'cancel':KeyboardInterrupt('original parent cancelled'),'memory_error':MemoryError('original parent memory'),
+        'runtime_error':RuntimeError('original parent runtime'),'assertion_error':AssertionError('original parent invariant')}.get(fault)
+    secondary=RuntimeError('original parent secondary close')
+    def reading(owner,ref):
+        if owner._lineage_depth>0 and ref['path']=='checkpoint.json':
+            owner._parent_fault_target=True
+            if primary is not None:raise primary
+        return read(owner,ref)
+    def closing(owner):
+        close(owner);closed.append(owner)
+        if getattr(owner,'_parent_fault_target',False):raise secondary
+    monkeypatch.setattr(StateReader,'_json',reading)
+    monkeypatch.setattr(StateReader,'close',closing)
+    monkeypatch.setattr(orm.SinglefileData,'__init__',lambda *a,**k:constructors.append(True))
+    with pytest.raises(BaseException) as caught:
+        saved_sources._prepare_native_outputs(f['child'],raw,maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+    assert caught.value is (primary if primary is not None else secondary)
+    if primary is not None:assert any('cleanup also raised RuntimeError' in n for n in primary.__notes__)
+    assert closed and all(r._closed and not r._handles for r in closed)
+    assert constructors==[] and set(f['child'].outputs)=={'retrieved'}
+
+
+@pytest.mark.integration
+def test_completed_restore_retained_credit_failure_publishes_no_partial_context(completed_access,monkeypatch):
+    f,raw=completed_access;describe=native_metadata.describe_native_metadata_context;calls=[]
+    def tight(*args,**kwargs):
+        assert kwargs['maximum_context_bytes']==128*M and kwargs['maximum_retained_bytes']==8*M
+        kwargs['maximum_retained_bytes']=1;calls.append(True)
+        return describe(*args,**kwargs)
+    monkeypatch.setattr(native_metadata,'describe_native_metadata_context',tight)
+    with saved_sources._native_operation(saved_sources._NATIVE_METADATA,256*M) as ledger:
+        with pytest.raises(ContractError) as caught:
+            saved_sources._prepare_native_outputs(f['child'],raw,maximum_metadata_bytes=saved_sources._NATIVE_METADATA,maximum_io_bytes=256*M)
+        assert caught.value.code=='budget_exceeded' and ledger.failed
+    assert calls==[True] and set(f['child'].outputs)=={'retrieved'}
 
 
 def b_metadata_graph(f,raw_plan,*,raw_graph=None,graph_alias=False,native_padding=0,claim_mutation=None):
@@ -1260,7 +1410,7 @@ def test_scalar_complete_exact_semantics_after_bounded_admission(scientific_acce
 
 
 def test_scalar_borrowed_session_is_not_flushed_committed_or_closed(aiida_profile_clean):
-    from sqlalchemy import event
+    from sqlalchemy import event, text
     from aiida.storage.sqlite_zip.models import DbUser
     creator=orm.CalcJobNode(process_type='aiida.calculations:qcl_negf.execution').store();uuid=creator.uuid
     expected=_scalar_maximum();expected['calcjob_uuid']=uuid;_scalar_create(creator,expected)
@@ -1272,26 +1422,28 @@ def test_scalar_borrowed_session_is_not_flushed_committed_or_closed(aiida_profil
     try:
         assert saved_sources._native_scalar_value(backend,uuid,saved_sources._NativeLedger(320*M,256*M))==expected
         assert pending in session.new and not signals and not connection.closed and session.is_active
-        assert saved_sources._native_scalar_rows(connection,'SELECT count(*) FROM db_dbuser WHERE email = ?',('scalar-pending@localhost',))==[(0,)]
+        with connection.execute(text('SELECT count(*) FROM db_dbuser WHERE email = :email'), {'email':'scalar-pending@localhost'}) as result:
+            assert result.fetchall()==[(0,)]
     finally:
         for name,callback in callbacks.items():event.remove(session,name,callback)
 
 
 @pytest.mark.parametrize('mutation',['duplicate','rebind','delete'])
 def test_scalar_conditional_statement_rechecks_actual_CREATE_snapshot(aiida_profile_clean,monkeypatch,mutation):
+    from sqlalchemy import text
     creator=orm.CalcJobNode(process_type='aiida.calculations:qcl_negf.execution').store();uuid=creator.uuid
     expected=_scalar_maximum();first=_scalar_create(creator,expected);second=orm.Dict(dict=expected).store();second_uuid=second.uuid
     actual=saved_sources._native_scalar_rows;changed=[]
     def interleave(connection,statement,parameters=()):
         rows=actual(connection,statement,parameters)
-        if statement==saved_sources._NATIVE_SCALAR_SQLITE_IDENTITY_SQL:
+        if statement in (saved_sources._NATIVE_SCALAR_SQLITE_IDENTITY_SQL, saved_sources._NATIVE_SCALAR_POSTGRES_IDENTITY_SQL):
             assert len(rows)==1
             if mutation=='duplicate':
-                connection.exec_driver_sql("INSERT INTO db_dblink (input_id, output_id, type, label) SELECT creator.id, target.id, 'create', 'selection' FROM db_dbnode AS creator, db_dbnode AS target WHERE creator.uuid = ? AND target.uuid = ?",(uuid,second_uuid)).close()
+                connection.execute(text("INSERT INTO db_dblink (input_id, output_id, type, label) SELECT creator.id, target.id, 'create', 'selection' FROM db_dbnode AS creator, db_dbnode AS target WHERE creator.uuid = :creator AND target.uuid = :target"),{'creator':uuid,'target':second_uuid}).close()
             elif mutation=='rebind':
-                connection.exec_driver_sql("UPDATE db_dblink SET output_id = (SELECT id FROM db_dbnode WHERE uuid = ?) WHERE input_id = (SELECT id FROM db_dbnode WHERE uuid = ?) AND label = 'selection' AND type = 'create'",(second_uuid,uuid)).close()
+                connection.execute(text("UPDATE db_dblink SET output_id = (SELECT id FROM db_dbnode WHERE uuid = :target) WHERE input_id = (SELECT id FROM db_dbnode WHERE uuid = :creator) AND label = 'selection' AND type = 'create'"),{'target':second_uuid,'creator':uuid}).close()
             else:
-                connection.exec_driver_sql("DELETE FROM db_dblink WHERE input_id = (SELECT id FROM db_dbnode WHERE uuid = ?) AND label = 'selection' AND type = 'create'",(uuid,)).close()
+                connection.execute(text("DELETE FROM db_dblink WHERE input_id = (SELECT id FROM db_dbnode WHERE uuid = :creator) AND label = 'selection' AND type = 'create'"),{'creator':uuid}).close()
             changed.append(True)
         return rows
     monkeypatch.setattr(saved_sources,'_native_scalar_rows',interleave)
