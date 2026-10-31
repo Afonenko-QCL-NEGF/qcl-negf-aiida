@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
 import os
+import errno
 from pathlib import Path
 import re
 import selectors
@@ -231,13 +232,80 @@ class NativeLocalTransport(LocalTransport):
         ignore = kwargs.get("ignore_nonexisting",args[2] if len(args)>2 else False)
         if type(ignore) is not bool:
             _hold("q1_ignore_nonexisting")
+        if os.fspath(remotepath).endswith('/result/executions'):
+            return self._get_help(remotepath,localpath)
         return self._get_control(remotepath,localpath,ignore_nonexisting=ignore)
 
     def getfile(self, remotepath, localpath, *args, **kwargs):
         self._get_control(remotepath, localpath)
 
     def gettree(self, remotepath, localpath, *args, **kwargs):
+        if os.fspath(remotepath).endswith('/result/executions'):
+            return self._get_help(remotepath,localpath)
         _hold("q1_controls_unavailable")
+
+    def _get_help(self,remotepath,localpath):
+        """One exact original-job tuple, after the mandatory native closure."""
+        from .model_help import HELP_RETRIEVE,document
+        if not self.is_open or self._q1_failure is not None:_hold('q1_session_unavailable')
+        remote=_absolute(remotepath);work=str(Path(remote).parent.parent)
+        if self._q1_budget is None:self._q1_budget=self._native_operation or _Operation()
+        with self._operation() as budget:
+            if self._q1_packet is None:
+                budget.before(65536)
+                identifier=native_actor.native_calcjob_uuid(computer_uuid=self.native_computer_uuid,
+                    remote_workdir=work,maximum_metadata_bytes=65536)
+                self._q1_packet=_Packet(self,identifier,budget)
+            packet=self._q1_packet
+            if remote!=packet.launch['remote_workdir']+'/result/executions':_hold('help original workdir differs')
+            # The complete trusted launch/workdir/closed packet joins above
+            # remain mandatory. Optional absence or malformed help cannot poison
+            # the original scientific control session.
+            help_budget=getattr(packet,'help_budget',None)
+            if help_budget is None:
+                help_budget=_HelpBudget(before=budget._deadline);packet.help_budget=help_budget
+            if help_budget.failed:return
+            def refuse(error,*,primary=False):
+                packet.refuse_help(error,primary=primary)
+                self.logger.warning('Optional help namespace unavailable: %s',type(error).__name__)
+            try:help_budget.before(16384)
+            except BaseException as error:
+                if _help_resource(error):refuse(error);return
+                raise
+            calc=native_actor._orm().load_node(packet.identifier)
+            if not native_actor._help_retrieval(calc.get_retrieve_list()):_hold('help tuple unavailable')
+            try:
+                # This extra original-plan read belongs only to HELP. Prepay
+                # the existing actor envelope without spending mandatory credit.
+                help_budget.before(native_actor.MAX_METADATA)
+                reads=native_actor._Reads(native_actor.MAX_METADATA,before=budget._deadline)
+                original=native_actor._input(calc,'plan',reads)
+                raw=reads.file(original,role='plan')
+                claim=packet.launch['files']['plan']
+                if len(raw)!=claim['bytes'] or hashlib.sha256(raw).hexdigest()!=claim['sha256']:
+                    _hold('help original plan differs')
+                plan=document(raw,native_actor.MAX_PLAN,help_budget.ledger)
+                packet.check(accounting=help_budget);namespace=_namespace(work,help_budget)
+                packet.help_namespaces[work]=(namespace,help_budget)
+                payload=_help_tree(packet,plan,help_budget)
+                packet.check(accounting=help_budget)
+            except (OSError,ValueError,KeyError,ValidationError) as error:
+                if getattr(error,'__notes__',()):refuse(error,primary=True);raise
+                refuse(error);return
+            except BaseException as error:
+                refuse(error,primary=True);raise
+            # Hold owned destination FDs only through these pre-return checks.
+            # Expected credit refusal can still clean our nodes before store.
+            try:
+                packet.reserve_help_close()
+                _deliver_help(localpath,payload,help_budget,retain=packet)
+                packet.check(accounting=help_budget)
+                if packet.help_destination is not None:packet.help_destination[2]()
+                packet._finish_help_destination()
+            except BaseException as error:
+                if _help_resource(error) or (isinstance(error,OSError) and error.errno in (errno.ENOSPC,errno.EDQUOT) and not getattr(error,'__notes__',())):
+                    refuse(error);return
+                refuse(error,primary=True);raise
 
     def _get_control(self, remotepath, localpath, *, ignore_nonexisting=False):
         if not self.is_open or self._q1_failure is not None:
@@ -380,6 +448,240 @@ def _signature(info):
             info.st_nlink,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
 
 
+def _help_resource(error,*,clean=True):
+    from .saved_sources import SourceError
+    return isinstance(error,SourceError) and error.code=='budget_exceeded' and (not clean or not getattr(error,'__notes__',()))
+
+
+class _HelpBudget:
+    """Narrow adapter to the existing terminal/nonrefundable metadata ledger."""
+    def __init__(self,*,before=lambda:None):
+        from .model_help import credit
+        self.ledger=credit();self.before_deadline=before;self.files=0;self.failed=False
+        self.closing=False;self.close_metadata=self.close_io=self.close_files=0
+    def before(self,size=0):
+        self.before_deadline()
+        if self.failed:raise ValueError('help previous operation failed')
+        if self.closing:
+            if self.ledger.failed:raise RuntimeError('help failed ledger reached close')
+            self.close_metadata-=size
+            if self.close_metadata<0:raise RuntimeError('help close metadata forecast invariant')
+        else:self.ledger.reserve('help tree metadata work',metadata=size)
+    def io(self,size):
+        if self.closing:
+            self.close_io-=size
+            if self.close_io<0:raise RuntimeError('help close IO forecast invariant')
+        else:self.ledger.reserve('help tree IO',io=size)
+    def file(self):
+        self.before(512)
+        if self.closing:
+            self.close_files-=1
+            if self.close_files<0:raise RuntimeError('help close file forecast invariant')
+        else:
+            self.files+=1
+            if self.files>100000:self.refuse_count()
+    def refuse_count(self):
+        from .saved_sources import SourceError
+        self.ledger.failed=True
+        raise SourceError('budget_exceeded','help tree metadata count')
+    def prepay_close(self,metadata,io,files):
+        # One concrete three-check obligation, burned before any destination.
+        # Never refill/refund this allowance or use it for ordinary work.
+        if self.close_metadata or self.close_io or self.close_files:
+            raise RuntimeError('help close allowance already reserved')
+        self.before(metadata);self.io(io)
+        if self.files+files>100000:self.refuse_count()
+        self.files+=files
+        self.close_metadata,self.close_io,self.close_files=metadata,io,files
+
+
+def _help_tree(packet,plan,budget):
+    """Metadata-only complete census before raw reads; never traverse native NFS."""
+    from . import model_help as help
+    work=packet.launch['remote_workdir'];execution=packet.launch['execution_id']
+    points={p['id'] for p in plan['points'] if p['execution_id']==execution}
+    maximum=min(help.MAX_ENTRIES,len(points));rows=[]
+    budget.before(4096+maximum*4096)
+    def open_tree(path):
+        info=os.lstat(path)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022):
+            raise ValueError('help directory owner')
+        tree=_Tree(path,budget);packet.trees.append(tree)
+        budget.file();tree.help_directory_signature=_signature(os.fstat(tree.fd));return tree
+    root=open_tree(work+'/result')
+    with os.scandir(root.fd) as entries:
+        first=next(entries,None);second=next(entries,None)
+        if first is None or first.name!='executions' or second is not None:
+            raise ValueError('help result namespace membership')
+    trees=[(open_tree(work+'/result/executions'),0,())]
+    while trees:
+        tree,depth,parts=trees.pop();tree.check()
+        budget.before(1024)
+        # Bound enumeration itself: scandir yields one entry at a time rather
+        # than allocating a potentially unbounded directory list first.
+        with os.scandir(tree.fd) as entries:
+            count=0
+            for entry in entries:
+                budget.file();count+=1
+                if count>max(1,maximum):raise ValueError('help directory count')
+                name=entry.name;info=entry.stat(follow_symlinks=False)
+                if (info.st_uid!=os.geteuid() or info.st_mode&0o022 or
+                        stat.S_ISLNK(info.st_mode)):raise ValueError('help tree owner')
+                valid=(name==execution if depth==0 else name in points if depth==1 else
+                       re.fullmatch(r'attempt-[1-9][0-9]{0,15}',name) is not None if depth==2 else
+                       name=='model-help-inputs.json')
+                if not valid:raise ValueError('help tree grammar')
+                path=parts+(name,)
+                if depth<3:
+                    if not stat.S_ISDIR(info.st_mode):raise ValueError('help directory required')
+                    trees.append((open_tree(tree.root+'/'+name),depth+1,path))
+                else:
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or not 0<=info.st_size<=help.MAX_SNAPSHOT:
+                        raise ValueError('help file identity')
+                    rows.append((tree,name,path,info.st_size))
+                    if len(rows)>maximum:raise ValueError('help total count')
+        tree.check()
+    total=sum(row[3] for row in rows)
+    if total>help.MAX_TOTAL:raise ValueError('help total bytes')
+    # Independent retained buffers, transport/destination/temporary/readback
+    # and decoded DTO work have separate credits, not one 8 MiB heap claim.
+    budget.ledger.reserve('help buffers/destination/temporary/readback copies',metadata=24*(total+len(rows))+65536,
+                          io=3*total+len(rows))
+    payload={}
+    for tree,name,parts,size in rows:
+        payload['/'.join(parts)]=tree.read(name,size,hold=True)
+    return payload
+
+
+def _deliver_help(localpath,payload,budget,*,retain=None):
+    spelling=os.fspath(localpath)
+    suffix='/./result/executions'
+    destination=(_absolute(spelling[:-len(suffix)])+'/result/executions'
+                 if spelling.endswith(suffix) else _absolute(spelling))
+    if not destination.endswith('/result/executions'):_hold('help destination spelling')
+    # Prepay the bounded record/cleanup workspace before any destination effect.
+    # Only exclusively created descendants are tracked; no recursive deletion.
+    budget.before(32768+len(payload)*16384)
+    parent=_Tree(str(Path(destination).parent),budget);opened=[parent];created=[];primary=None
+    def identity(tree):
+        if _signature(os.fstat(tree.fd))[:5]!=tree.identity[:5]:_hold('help destination cleanup parent changed')
+        for ancestor,name,before in tree.ancestors:
+            if _signature(os.stat(name,dir_fd=ancestor,follow_symlinks=False))[:5]!=before[:5]:
+                _hold('help destination cleanup ancestry changed')
+    def cleanup():
+        # Reverse construction order; rmdir refuses unknown/foreign descendants.
+        for tree,name,before,directory in reversed(created):
+            identity(tree)
+            info=os.stat(name,dir_fd=tree.fd,follow_symlinks=False)
+            if (_signature(info)[:5]!=before[:5] or
+                    stat.S_ISDIR(info.st_mode)!=directory or
+                    not directory and (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1)):
+                _hold('help destination cleanup object changed')
+            if directory:os.rmdir(name,dir_fd=tree.fd)
+            else:os.unlink(name,dir_fd=tree.fd)
+    def mkdir(tree,name):
+        tree.check();before=os.fstat(tree.fd);budget.file();os.mkdir(name,0o700,dir_fd=tree.fd)
+        info=os.stat(name,dir_fd=tree.fd,follow_symlinks=False)
+        created.append((tree,name,_signature(info),True))
+        after=os.fstat(tree.fd)
+        if _signature(before)[:5]!=_signature(after)[:5] or after.st_nlink!=before.st_nlink+1:
+            _hold('help destination parent changed')
+        tree.identity=_signature(after)[:6]
+    def leaf(tree,name,raw):
+        tree.check();budget.before(8*(len(raw)+1));budget.io(len(raw));budget.file()
+        fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=tree.fd)
+        failure=None
+        try:
+            info=os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_nlink!=1:
+                _hold('help destination file identity')
+            created.append((tree,name,_signature(info),False))
+            offset=0
+            while offset<len(raw):
+                budget.before();count=os.write(fd,raw[offset:offset+65536])
+                if count<=0:_hold('help destination short write')
+                offset+=count
+            os.fsync(fd)
+        except BaseException as error:failure=error;raise
+        finally:
+            try:os.close(fd)
+            except BaseException as closing:
+                if failure is None:
+                    closing.add_note('help destination file close failed');raise
+                failure.add_note('help destination file close failed: '+type(closing).__name__)
+        tree.read(name,len(raw),raw);tree.check()
+    def check_destination():
+        for tree in opened:tree.check()
+    def finish(primary=None):
+        failure=None
+        for tree in reversed(opened):
+            try:tree.close()
+            except BaseException as closing:
+                if primary is None:
+                    if failure is None:
+                        closing.add_note('help destination directory close failed');failure=closing
+                    else:failure.add_note('help destination directory close failed: '+type(closing).__name__)
+                else:primary.add_note('help destination directory close failed: '+type(closing).__name__)
+        if failure is not None:raise failure
+    try:
+        mkdir(parent,'executions')
+        cache={():_Tree(destination,budget)};opened.append(cache[()])
+        for path,raw in payload.items():
+            parts=_relative(path)
+            for n in range(1,len(parts)):
+                key=parts[:n]
+                if key not in cache:
+                    before=cache[key[:-1]];mkdir(before,key[-1])
+                    cache[key]=_Tree(destination+'/'+'/'.join(key),budget);opened.append(cache[key])
+            leaf(cache[parts[:-1]],parts[-1],raw)
+        for tree in opened:
+            tree.check();budget.file();tree.help_directory_signature=_signature(os.fstat(tree.fd))
+        if retain is not None:retain.help_destination=(cleanup,finish,check_destination)
+    except BaseException as error:
+        primary=error
+        try:cleanup()
+        except BaseException as closing:
+            primary.add_note('help destination cleanup failed: '+type(closing).__name__)
+            if _help_resource(primary,clean=False) or isinstance(primary,OSError) and primary.errno in (errno.ENOSPC,errno.EDQUOT):
+                # Recoverable IO cannot publish a partial tree when ownership or
+                # cleanup is unknown. Preserve the IO as the explicit cause.
+                raise PauseInterruption('native attempt HOLD: help destination cleanup unavailable') from primary
+        raise
+    finally:
+        if primary is not None or retain is None:finish(primary)
+
+def _admit_help_submit(calc,launch,budget):
+    """Existing retrieval declaration records a fresh original upload preflight.
+
+    No new attempt or submit replay is created. Unknown/preexisting result
+    disables only help; the Runner independently refuses that same namespace.
+    """
+    from .model_help import HELP_RETRIEVE
+    declared=calc.get_retrieve_list()
+    if not native_actor._help_retrieval(declared):return
+    if calc.get_remote_workdir()!=launch['remote_workdir']:_hold('help submit workdir changed')
+    directory=None;primary=None;available=False
+    try:
+        value=os.stat(launch['remote_workdir'],follow_symlinks=False)
+        if stat.S_ISDIR(value.st_mode) and value.st_uid==os.geteuid() and value.st_mode&0o022==0:
+            directory=_Tree(launch['remote_workdir'],budget)
+            try:os.stat('result',dir_fd=directory.fd,follow_symlinks=False)
+            except FileNotFoundError:
+                directory.check();available=True
+    except (OSError,ValueError):pass
+    except BaseException as error:primary=error;raise
+    finally:
+        if directory is not None:
+            try:directory.close()
+            except BaseException as error:
+                if primary is not None:primary.add_note('help presubmit close failed: '+type(error).__name__)
+                elif isinstance(error,(OSError,ValueError)):available=False
+                else:raise
+    if not available:
+        calc.set_retrieve_list([item for item in declared if not
+            (type(item) in (list,tuple) and tuple(item)==HELP_RETRIEVE)])
+
+
 def _absolute(path):
     value = os.fspath(path)
     native_actor._path(value)
@@ -427,31 +729,36 @@ class _Tree:
                 primary.add_note("source FD cleanup failed: "+type(cleanup).__name__)
             raise
 
-    def check(self):
-        self.budget.before()
-        if _signature(os.fstat(self.fd))[:6] != self.identity:
+    def check(self, *, accounting=None):
+        budget=self.budget if accounting is None else accounting
+        budget.before()
+        if hasattr(self,'help_directory_signature'):budget.file()
+        signature=_signature(os.fstat(self.fd))
+        if hasattr(self,'help_directory_signature') and signature!=self.help_directory_signature:
+            _hold('help namespace membership changed')
+        if signature[:6] != self.identity:
             _hold("q1_directory_changed")
         # Other entries may change in /tmp or an ancestor. The selected named
         # directory identity/credentials/mode must remain the very same inode.
         for parent,name,before in self.ancestors:
-            self.budget.file()
+            budget.file()
             if _signature(os.stat(name,dir_fd=parent,follow_symlinks=False))[:5] != before[:5]:
                 _hold("q1_ancestry_changed")
         for name,before in self.bindings.items():
-            self.budget.file()
+            budget.file()
             if _signature(os.stat(name,dir_fd=self.fd,follow_symlinks=False)) != before:
                 _hold("q1_file_changed")
 
         if self.technical_fd is not None:
-            self.budget.file()
+            budget.file()
             if _signature(os.fstat(self.technical_fd)) != self.bindings[native_actor.TECHNICAL_FILE]:
                 _hold("q1_file_changed")
         for name,fd in self.held.items():
-            self.budget.file()
+            budget.file()
             if _signature(os.fstat(fd)) != self.bindings[name]:
                 _hold("q1_file_changed")
         for name in self.absent:
-            self.budget.file()
+            budget.file()
             try:
                 os.stat(name,dir_fd=self.fd,follow_symlinks=False)
             except FileNotFoundError:
@@ -546,7 +853,8 @@ def _proc_bytes(path,budget,cap=65536):
     finally:
         try:context.__exit__(type(primary),primary,primary.__traceback__) if primary is not None else context.__exit__(None,None,None)
         except BaseException as cleanup:
-            if primary is None:raise
+            if primary is None:
+                cleanup.add_note('native proc stream close failed');raise
             primary.add_note('native proc stream close failed: '+type(cleanup).__name__)
     if len(raw)>cap:
         _hold("q1_namespace_bound")
@@ -603,6 +911,7 @@ class _Packet:
     def __init__(self,transport,identifier,budget):
         self.transport,self.identifier,self.budget=transport,identifier,budget
         self.trees=[];self.raw={};self.closed=False;self.performance_reads=[];self.performance_parents=[]
+        self.help_namespaces={};self.help_destination=None
         try:
             # Prepay the initial public lookup cap in full. After observing its
             # actual four FILES, use the existing P2 actor envelope for the two
@@ -691,25 +1000,112 @@ class _Packet:
         self.result.read(native_actor.TECHNICAL_FILE,native_actor.TECHNICAL_LIMIT,
             self.raw.get(native_actor.TECHNICAL_FILE),optional=True)
 
-    def check(self, *, technical=False):
-        self.budget.before()
-        for root,namespace in self.namespaces.items():
-            if _namespace(root,self.budget)!=namespace:
-                _hold("q1_namespace_changed")
+    def _help_shape(self):
+        optional=getattr(self,'help_budget',None)
+        return (len(self.trees),tuple((root,id(account)) for root,(_,account) in self.help_namespaces.items()),
+            tuple((id(tree),tree.root,tree.fd,len(tree.ancestors),tuple(tree.bindings),
+                   tuple(tree.held.items()),tuple(tree.absent),tree.technical_fd)
+                  for tree in self.trees if tree.budget is optional))
+
+    def reserve_help_close(self):
+        budget=self.help_budget
+        if getattr(self,'help_close_shape',None) is not None:
+            raise RuntimeError('help close forecast already frozen')
+        # Compute lengths/counts over already held source objects, before making
+        # the bounded shape tuple. No namespace/payload traversal is added here.
+        shape_cost=4096;files=0
         for tree in self.trees:
-            tree.check()
-        if self.closed and technical:
-            self._check_technical()
-        # Launch12 deliberately omits the scheduler job selector. Query the
-        # original CalcJob afresh, with its full metadata allowance prepaid,
-        # rather than accepting a newly stable job from a later actor lookup.
-        self.budget.before(16384)
+            if tree.budget is not budget:continue
+            shape_cost+=4096+8*len(tree.root)+8*sum(len(n) for n in tree.bindings)+8*sum(len(n) for n in tree.held)+8*sum(len(n) for n in tree.absent)
+            files+=1+len(tree.ancestors)+len(tree.bindings)+len(tree.held)+len(tree.absent)+(tree.technical_fd is not None)
+        budget.before(shape_cost)
+        shape=self._help_shape();roots=len(self.help_namespaces)
+        # _proc_bytes ceilings: status/mountinfo each65537 requested bytes;
+        # boot cap64 has <=130 requested bytes. Four metadata file probes/root.
+        proc_io=2*65537+130
+        metadata=3*(shape_cost+roots*(8*proc_io+4*512)+files*512)
+        io=3*roots*proc_io;file_count=3*(files+4*roots)
+        budget.prepay_close(metadata,io,file_count)
+        self.help_close_shape=shape;self.help_close_shape_cost=shape_cost
+
+    def _finish_help_destination(self,primary=None,*,discard=False):
+        destination=self.help_destination;self.help_destination=None
+        if destination is None:return
+        cleanup,finish,_=destination
+        failure=primary
+        if discard:
+            try:cleanup()
+            except BaseException as error:
+                if failure is None:failure=error
+                else:failure.add_note('help destination cleanup failed: '+type(error).__name__)
+        try:finish(failure)
+        except BaseException as error:
+            if failure is None:failure=error
+            else:failure.add_note('help destination close failed: '+type(error).__name__)
+        if failure is not None and primary is None:raise failure
+
+    def refuse_help(self,error,*,primary=False):
+        # Cleanup was prepaid before creation and needs no failed-ledger debit.
+        self._finish_help_destination(error,discard=True)
+        optional=getattr(self,'help_budget',None);retained=[]
+        for tree in self.trees:
+            if tree.budget is not optional:retained.append(tree);continue
+            try:tree.close()
+            except BaseException as closing:error.add_note('optional help source close failed: '+type(closing).__name__)
+        self.trees=retained;self.help_namespaces.clear()
+        if optional is not None:optional.failed=True
+        if getattr(error,'__notes__',()):
+            if not primary and (_help_resource(error,clean=False) or isinstance(error,OSError)):
+                raise PauseInterruption('native attempt HOLD: optional help cleanup unavailable') from error
+            raise error
+
+    def check(self, *, technical=False, accounting=None):
+        budget=self.budget if accounting is None else accounting
+        budget.before()
+        for root,namespace in self.namespaces.items():
+            if _namespace(root,budget)!=namespace:_hold('q1_namespace_changed')
+        # Original proofs retain their default budget and run before optional
+        # branches. The extra HELP-only invocation can use explicit accounting.
+        for tree in self.trees:
+            if tree.budget is not self.budget:continue
+            if accounting is None:tree.check()
+            else:tree.check(accounting=accounting)
+        if self.closed and technical:self._check_technical()
+        budget.before(16384)
         orm=native_actor._orm();calc=orm.load_node(self.identifier)
         if (not isinstance(calc,orm.CalcJobNode) or not calc.is_stored or
                 calc.computer.uuid!=self.transport.native_computer_uuid or
                 calc.get_job_id()!=self.job_id or
-                calc.get_remote_workdir()!=self.launch["remote_workdir"]):
-            _hold("q1_actor_job_changed")
+                calc.get_remote_workdir()!=self.launch['remote_workdir']):
+            _hold('q1_actor_job_changed')
+        if accounting is None and not getattr(self,'help_closing',False):return
+        optional=getattr(self,'help_budget',None)
+        closing=accounting is None and optional is not None and bool(self.help_namespaces)
+        if closing:
+            optional.closing=True
+        try:
+            if closing:
+                if len(self.trees)!=self.help_close_shape[0] or len(self.help_namespaces)!=len(self.help_close_shape[1]):_hold('help close source count changed')
+                recorded=iter(self.help_close_shape[2])
+                for tree in self.trees:
+                    if tree.budget is not optional:continue
+                    row=next(recorded,None)
+                    if row is None or id(tree)!=row[0] or len(tree.ancestors)!=row[3] or len(tree.bindings)!=len(row[4]) or len(tree.held)!=len(row[5]) or len(tree.absent)!=len(row[6]):_hold('help close FD count changed')
+                if next(recorded,None) is not None:_hold('help close source count changed')
+                optional.before(self.help_close_shape_cost)
+                if self._help_shape()!=self.help_close_shape:_hold('help close source shape changed')
+            for root,(namespace,help_budget) in self.help_namespaces.items():
+                if _namespace(root,help_budget if accounting is None else accounting)!=namespace:
+                    _hold('q1_namespace_changed')
+            for tree in self.trees:
+                if tree.budget is self.budget:continue
+                if accounting is None:tree.check()
+                else:tree.check(accounting=accounting)
+        except BaseException as error:
+            if accounting is None and _help_resource(error):self.refuse_help(error)
+            else:raise
+        finally:
+            if closing:optional.closing=False
 
     def _release(self,primary=None):
         failure=primary
@@ -726,7 +1122,7 @@ class _Packet:
             raise failure
 
     def close(self):
-        primary=None
+        primary=None;self.help_closing=True
         try:
             self.check()
             if native_actor.load_native_launch(self.identifier,maximum_metadata_bytes=self.actor_cap)!=self.launch:
@@ -742,6 +1138,8 @@ class _Packet:
             self.check()
         except BaseException as error:
             primary=error
+        try:self._finish_help_destination(primary,discard=primary is not None)
+        except BaseException as error:primary=error
         self._release(primary)
         if primary is not None:
             raise primary
@@ -1035,6 +1433,24 @@ class NativeSlurmScheduler(SlurmScheduler):
                 _hold("native_submit_context")
             with self.transport, self.transport._operation() as budget:
                 uuid = native_actor._lookup(self.transport.native_computer_uuid,str(working_directory),None,budget.reads)
+                budget.before(16384)
+                calc=native_actor._orm().load_node(uuid)
+                declared=calc.get_retrieve_list()
+                from .model_help import HELP_RETRIEVE
+                if declared is not None and any(type(item) in (list,tuple) and tuple(item)==HELP_RETRIEVE
+                                                for item in declared):
+                    native_actor._help_retrieval(declared)
+                    optional=_HelpBudget(before=budget._deadline)
+                    try:
+                        # Prepay a separate optional original-load allowance;
+                        # never consume or halve the mandatory16MiB packet.
+                        optional.before(native_actor.MAX_METADATA)
+                        launch=native_actor.load_native_launch(uuid,maximum_metadata_bytes=native_actor.MAX_METADATA)
+                        _admit_help_submit(calc,launch,optional)
+                    except (OSError,ValueError):
+                        optional.failed=True
+                        calc.set_retrieve_list([item for item in declared if not
+                            (type(item) in (list,tuple) and tuple(item)==HELP_RETRIEVE)])
                 return self._request("submit",uuid)["job_id"]
         except PauseInterruption:
             raise

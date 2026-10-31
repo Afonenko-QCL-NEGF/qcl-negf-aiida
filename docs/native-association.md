@@ -376,3 +376,210 @@ DB I/O, current RO access or installed producer/scientific qualification.
 The consumer can reuse this one whole binding read for a finite page. Pagination,
 J(V) brief reads, RO child lifetime and UI contracts belong to Portal and Results;
 this operation does not read every point's scientific payload.
+
+# Retained optional model-help inputs
+
+The optional `model_help_assets` input is existing immutable `FolderData`,
+forwarded by the Plan and Restart workchains. It retains the original Root
+`release.json`, `bundle.json` and selected `help/fragments/<id>.json` alongside
+the original `source_graph` input. The trusted owning submitter supplies their
+release/build association. That opaque source/review association is not yet
+retained by this adapter: it creates no execution-specific release receipt and
+mapping remains unavailable. The service compares exact bytes, graph, fragment
+inventory and immutable INPUT links; it never reconstructs historical assets
+from the current deployment. No full serving, source-review or physical-origin
+authority is inferred from this minimal mapping. Full bound documentation still
+requires the existing complete Contracts bundle/source/review/payload proof.
+
+`get_model_help_input` keeps the context-only call when `fragment_id=None`.
+An explicit requested fragment adds detached `retained` operands in the existing
+Contracts validator layout. Original retrieved/index CREATE and INPUT/CALL joins
+precede availability. Native capture uses the existing complete original result,
+binding, scalar selection and source/creator/epoch readback. Its local point
+attempt may differ from the child transport attempt: `selection.capture_context`
+contains the LocalContext, while the View/release context keeps the selected
+child transport identity. A prior source or a matching path alone cannot create
+this association. Missing source/creator evidence leaves USED unavailable.
+
+The parser emits metadata inventory and the optional help index before native
+and ordinary scientific early returns, including missing or failed results.
+Index `valid` describes Snapshot shape and its original path/plan passport
+identity; it does not grant a creator association or scientific acceptance.
+Invalid optional JSON remains raw in the original retrieved repository and
+does not replace the scientific exit. Inventory sizes use repository metadata;
+the inventory does not open HDF5. A complete index is required for availability.
+
+Native retrieval adds only `('result/executions', '.', 2)`. The owning sandbox
+must have no `result` namespace. Immediately before the existing submit action,
+the scheduler checks the original workdir owner and namespace absence; unknown
+or preexisting state removes only this optional tuple, preserving all five
+scientific controls and the optional performance source. This does not replay
+a submit or change scientific inputs. Runner independently requires a fresh
+owned namespace and publishes exact immutable bytes. Tuple presence alone is
+not transport authority: the adapter also requires the existing trusted original
+launch/workdir/closed packet joins. All other tree retrieval remains HOLD.
+
+The only admitted extra repository root is `result/executions/E/P/attempt-N/`
+containing `model-help-inputs.json`. Every E/P belongs to the selected frozen
+execution. The transport checks complete metadata membership, owners, regular
+files, link count, no symlinks/alias, count, individual and aggregate sizes before
+any payload read or destination creation of its own. Stock AiiDA creates the
+parent `result/` for the fixed tuple before invoking the adapter. Unsupported
+files, arrays and arbitrary root namespaces are never transferred as help.
+No scientific/NFS execution tree is recursively copied. The prescribed literal
+local `./result/executions` suffix is supported without normalizing arbitrary
+unsafe paths. Destination descendants are created exclusively.
+
+Operational limits remain 64 KiB per Snapshot, 8 MiB total Snapshot bytes,
+min(selected frozen points, 10000) entries, and 2 MiB encoded Index/Bundle.
+The existing nonrefundable native ledger supplies separate help credit: 256 MiB
+logical metadata/work/copy credit and 32 MiB I/O credit. Before decode, a
+conservative 512-bytes-per-input-byte workspace is reserved; original raw
+buffers, retained/temporary/transport/readback copies and asset decodes receive
+separate reservations. A smaller credit can make help unavailable before the
+byte ceilings are reached. These accounting limits are not measured peak RSS,
+total Python/AiiDA/PostgreSQL allocations, physical database I/O or campaign
+quotas. Installed mirror/retrieval and total runtime memory remain separate N
+measurements. All handles must close successfully before a detached reply;
+cancellation remains primary when a secondary close also fails.
+
+Stock AiiDA retrieval may create an empty local `result/` parent before the
+optional tuple is read. An empty parent represents unavailable help and does not
+change the original control packet; any nonempty parent must pass the strict
+`result/executions` metadata grammar. Optional namespace or aggregate rejection
+preserves scientific control retrieval; a user cancellation still propagates.
+
+The additional serialized namespace census admits at most10000 total directory
+and file nodes (including root), depth32, bounded component/path lengths and
+2MiB conservative metadata-string weight. It iterates public stored
+`NodeRepository.metadata` without `walk`, `deepcopy`, `list`, or
+`Repository.from_serialized` first. ORM has already hydrated that metadata; this
+is explicitly outside the additional census/heap accounting. Namespace
+exhaustion returns incomplete, potentially below the raw Snapshot/Index caps.
+
+Per-object sizes use a Root-qualified narrow adapter: AiiDA2.9.2,
+disk-objectstore1.5.0, exact DiskObjectStoreRepositoryBackend, SHA256 keys,
+original stored owner/repository identity and core.psql_dos/core.sqlite_dos.
+The public owner.backend.get_repository and serialized metadata supply the
+association; the sole private provider._container is used as a closing context
+for public get_object_meta (with_streams=False: SQL metadata or loose stat).
+The operation prepays and caches admitted size records. Unknown versions,
+providers, owners and unstored metadata are refused before payload effects.
+NodeRepository.get_object_size/as_path must not be used here: AiiDA2.9.2
+implements that apparent size probe as a full payload copy. No HDF5/Snapshot
+payload is opened merely to find its size. Current genuine qualification is PG;
+the shared SQLite provider type is guarded, not a new SQLite runtime claim.
+
+Optional submit preflight has separate prepaid original-load credit and keeps
+the mandatory native16MiB budget intact. Destination ENOSPC/EDQUOT recovers
+only after all exclusively created descendants are removed in reverse creation
+order using held parent identities; unknown entries are never recursively
+deleted. Foreign replacement/unsafe cleanup remains HOLD. Cancellation and
+fatal/invariant/uncertain-close errors preserve their primary object; these
+errors cannot publish a partial help tree or a successful detached DTO.
+
+
+The optional native reread of the original plan prepays the existing 16 MiB
+actor envelope from help credit. Additional packet/namespace proofs and optional
+source-handle checks, including the original session close, use that same help
+ledger. The mandatory operation retains its original 16 MiB cap and all default
+checks. Accounting does not change what is proved: an actual original job,
+namespace, file identity or ancestry mismatch still produces HOLD.
+
+
+Ordinary scientific parsing obtains only its required path scope from public
+serialized metadata, independently of optional HELP provider/version/size
+qualification: fixed `result/series_result.json`, fixed
+`result/pause-receipt.json`, and the bounded `result/recovery` subtree. Only
+recovery receipt candidates are passed to the existing `select_recovery`; its
+manifest/state/archive/byte/identity verification remains authoritative. HELP
+`result/executions` and unrelated empty directories cannot change a scientific
+exit. The required recovery namespace retains finite entry/depth/string caps
+and file-bound refusal. Inventory/index completeness remains honest metadata;
+it no longer supplies an unrelated global veto on the ordinary science verdict.
+
+Native actor CREATE readback also uses separate HELP credit for optional root,
+typed plan/execution queries, raw plan and strict help tree admission. The
+original mandatory16MiB actor workspace and exact scientific controls are
+unchanged. Typed provider refusal and terminal optional resource denial do not
+accept help; malformed mandatory membership/bytes, namespace/security mismatch,
+cancellation and fatal/cleanup failures remain failures.
+
+AiiDA2.9.2 copies and stores FolderData inside `with transport`, before
+transport.close. Consequently the adapter never promises rollback of stored
+HELP through an already removed SandboxFolder. Owned destination handles stay
+open only through pre-return source/destination checks and close before
+`_get_help` returns. Recoverable refusal at these stages removes only recorded
+exclusive descendants, closes HELP handles and detaches the failed ledger.
+
+Before the first optional destination effect, the existing HELP budget burns
+one concrete reservation for the three later source-close checks. Let P be the
+number of frozen optional namespace roots, F the sum over frozen source trees
+of one root-fstat probe plus ancestry/binding/held/absence/technical-FD probes,
+and W the bounded shape-copy allowance derived from those actual roots/names.
+`_proc_bytes` requests at most65537 bytes for each status/mountinfo stream and
+at most130 bytes for boot_id (including EOF requests). With B=2*65537+130,
+reserved metadata is3*(W+P*(8*B+4*512)+512*F), IO is3*P*B, and file-probe quota
+is3*(4*P+F). W is4096 plus, per held source tree,4096+8*(root length+binding
+name lengths+held name lengths+absence name lengths). These are logical work
+credits, not measured heap/RSS/physical-IO bounds.
+
+The prepayment is never refunded/refilled and cannot pay for ordinary work.
+Close consumes the already burned counters, never calls a failed ledger, and
+checks frozen namespace/tree/FD counts before constructing its bounded shape.
+Count/shape growth, full source-directory metadata changes, foreign replacement,
+forecast underflow, deadline/cancellation, IO and actual FD-close failures remain
+HOLD/fatal/primary failures. Thus a correctly forecast close cannot introduce a
+new legal resource refusal after store; the reservation itself may honestly
+refuse HELP before destination creation. Ordinary CONTROL retrieval pays none
+of these new HELP costs. Original mandatory close and performance proofs remain.
+
+
+Stored binary source reads use `StoredLeafReader` for the ordinary result and
+recovery operands, the HELP-declared actor control arm, and every repeated
+`_native_result` read. The default actor without HELP retains its original
+repository path. A genuine stored owner and its exact NodeRepository association
+are required. Only the requested canonical relative path is traversed in the
+already ORM-hydrated public serialized metadata: at most32 components,2048 path
+characters,256 per component, and one file leaf with an opaque key of at most
+1024 characters. No unrelated children are enumerated or copied.
+
+The public `owner.backend.get_repository().open(key)` context returns the
+provider's original binary stream. This avoids NodeRepository's lazy whole
+`Repository.from_serialized` construction on cold nodes. Backend instances may
+be fresh on each call; optional HELP package/version/provider qualification
+never governs mandatory scientific/control reads. The backend key is not a raw
+byte hash or provenance claim. Existing handle/read/workspace credits, seek/read
+sizes, raw-byte/hash comparisons and unchanged recovery/result validators still
+apply. A malformed selected file/key gives the existing invalid-result exit;
+a missing result keeps the missing-result exit. Refused HELP siblings cannot
+force a whole-tree materialization through a subsequent scientific open.
+
+Clean close failure prevents a successful return; secondary close failure adds
+a note to the original read, fatal or cancellation exception. ORM hydration and
+public backend internals remain opaque costs; these path/key caps are additional
+lookup bounds, not a bound on ORM decoding, copies or process RSS.
+
+
+Admitted HELP payloads now use this same leaf operand: the production parser
+passes it to `build_index`, selected snapshot and retained asset roles open via
+their stored owners, and the service uses it for input/retrieved frozen plans
+when a HELP ledger is present. The minimal `build_index` binary-reader protocol
+is unchanged; it grants no ORM source access on its own. No full File hierarchy
+is created for these FolderData reads, even for an admitted namespace with2000
+empty siblings. No new tree-copy formula, ledger, refund or cap was introduced.
+
+A terminal `SourceError` credit refusal is propagated before the malformed-byte
+classification. An already failed ledger is refused at index entry, and no
+final C1/encoding/projection follows a failed JSON reservation. The existing
+parser optional handler publishes `complete=False, entries=[]`; original valid
+bytes are not called malformed. Actual malformed payloads retain their invalid
+classification. With the default256MiB credit, nine independently validated
+60000-byte synthetic snapshots can exhaust JSON work below the8MiB aggregate
+payload cap; this is honest HELP unavailability, not a scientific failure.
+
+The `ledger=None` legacy service, generic report/artifact APIs and default actor
+remain unchanged. The retained SourceGraph still uses the valid stored
+SinglefileData invariant (exactly one file validated before store), bounded raw
+read and explicit source joins; it does not enumerate FolderData. ORM hydration,
+provider internals and whole-process RSS remain opaque.

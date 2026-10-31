@@ -139,6 +139,7 @@ class QCLExecutionCalculation(CalcJob):
         super().define(spec)
         spec.input("plan", valid_type=orm.SinglefileData)
         spec.input("source_graph", valid_type=orm.SinglefileData, required=False)
+        spec.input("model_help_assets", valid_type=orm.FolderData, required=False)
         spec.input("native_execution", valid_type=orm.SinglefileData, required=False)
         spec.input("execution_id", valid_type=orm.Str)
         spec.input("attempt", valid_type=orm.Int, default=lambda: orm.Int(1))
@@ -156,6 +157,7 @@ class QCLExecutionCalculation(CalcJob):
         spec.output("native_binding", valid_type=orm.SinglefileData, required=False)
         spec.output("native_submit_script", valid_type=orm.SinglefileData, required=False)
         spec.output("inventory", valid_type=orm.Dict, required=False)
+        spec.output("model_help_index", valid_type=orm.Dict, required=False)
         spec.output("delivery", valid_type=orm.Dict, required=False)
         spec.output("recovery_bundle", valid_type=orm.FolderData, required=False)
         spec.output("recovery_receipt", valid_type=orm.Dict, required=False)
@@ -427,6 +429,16 @@ class QCLExecutionCalculation(CalcJob):
         info.codes_info = [code]
         # Stock presubmit adds its two scheduler logs. Q1 still gates all gets.
         info.retrieve_list = ["series_result.json", "native-selection.json", "native-close.json", "performance-source.json"]
+        # The Runner's exact optional mirror also requires absent result at
+        # entry. The transport repeats this gate against the original remote
+        # workdir before submitting, and removes only this optional tuple when
+        # that namespace is preexisting/unknown. No directory is adopted here.
+        try:os.stat(os.path.join(folder.abspath,'result'),follow_symlinks=False)
+        except FileNotFoundError:
+            from .model_help import HELP_RETRIEVE
+            info.retrieve_list.append(HELP_RETRIEVE)
+        except OSError:
+            pass  # Unknown optional namespace is never adopted.
         return info
 
     def _prepare_for_submission(self, folder):

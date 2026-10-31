@@ -131,6 +131,7 @@ class QCLPlanWorkChain(WorkChain):
         spec.input("release_id", valid_type=orm.Str, required=False)
         spec.input("b0_reference", valid_type=orm.Str, required=False)
         spec.input("source_graph", valid_type=orm.SinglefileData, required=False)
+        spec.input("model_help_assets", valid_type=orm.FolderData, required=False)
         spec.input_namespace("native_executions", dynamic=True, valid_type=orm.SinglefileData, required=False)
         spec.output_namespace("results", dynamic=True, valid_type=orm.SinglefileData)
         spec.output_namespace("artifacts", dynamic=True, valid_type=orm.FolderData)
@@ -228,6 +229,8 @@ class QCLPlanWorkChain(WorkChain):
                 options["scratch_root"] = self.inputs.scratch_root
             if "release_id" in self.inputs:
                 options["release_id"] = self.inputs.release_id
+            if "model_help_assets" in self.inputs:
+                options["model_help_assets"] = self.inputs.model_help_assets
             if "source_graph" in self.inputs:
                 options["source_graph"] = self.inputs.source_graph
                 options["native_execution"] = self.inputs.native_executions[key]
