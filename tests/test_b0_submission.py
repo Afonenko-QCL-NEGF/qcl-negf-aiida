@@ -4,7 +4,9 @@ These fixtures are intentionally not executed by the source-only ticket. Running
 this file still imports AiiDA and needs the separately authorized runtime packet.
 """
 from contextlib import contextmanager
+import json
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -159,6 +161,12 @@ class FakeManager:
 
     def create_runner(self, **kwargs):
         raise AssertionError("Do not create another runner for this API fix")
+
+
+@pytest.fixture
+def plan():
+    # Manufactured current-wire input; B0 assertions do not establish native provenance.
+    return json.loads((Path(__file__).parent / "fixtures/export-plan/current-plan-v2.json").read_bytes())
 
 
 @pytest.fixture
