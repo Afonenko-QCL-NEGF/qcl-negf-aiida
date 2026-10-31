@@ -23,22 +23,20 @@ callable signature and explicitly refuses that retired wire. Retained legacy
 bytes still require their exact creator/UUID/length/hash; they are unavailable
 for typed re-verification.
 
-Native inputs dispatch to a separate parser before legacy inventory. It consumes
-public selected access and public StateReader/checkpoint/final readers under one
-nonrefundable metadata32MiB/I/O256MiB ledger. A's full8MiB/64MiB lifetime and every
-Results2MiB/16MiB operation are prepaid, including constructor and source reads;
-catalog/file/array limits are explicitly tightened. Output construction happens
-after reader close and successful A exit. These are SOURCE/L admission limits,
-not measurements of installed RSS, runtime or scientific adequacy.
+Native inputs dispatch to a separate parser before legacy inventory. One
+nonrefundable metadata320MiB/I/O256MiB operation prepays the reusable Results
+128MiB workspace, binder96MiB workspace, and A's full16MiB/64MiB selected-access
+lifetime. These are gross admission credits, not actual transferred bytes or
+physical RSS. Readers and A close before output construction; genuine CREATE/raw
+readback still precedes scalar selection.
 
-Selected access, source relation and native/transport counters do not establish
-the original scientific creator. Current producer argv carries no immutable
-CalcJob/native-execution binding into the generated invocation. A nonabsent
-source therefore ends with `creator_proof_unavailable` and the concrete missing
-`original_invocation_calcjob_origin` operand. All original point/history rows
-remain in retrieved bytes; no complete native pair or selection is published.
-Current and same-child `retained_source` receive identical checks. Original
-creator mapping and foreign parent chains remain a separate S00/owner increment.
+The scientific creator is checked separately from source relation and counters.
+The binder joins original Code/native argv, typed INPUT/CALL/CREATE links and raw
+original script bytes. Its closed stock script grammar accepts only the original
+unset or the fixed two-assignment capture export. Extra commands, environment,
+paths and counter aliases are refused; previously weakly accepted scripts are
+not grandfathered into provenance. Source/native availability and scientific
+acceptance remain separate gates.
 
 An absent-only result can produce the original raw `result` and a
 `native_binding` SinglefileData pair. The CalcJob's public output mechanism
@@ -80,3 +78,49 @@ then use the Results same-open selected-copy reader under the existing shared
 Root/Platform inject the immutable capture executable through the existing
 PythonSet/lock/solver package. Packaging/native mapping, finite runtime checks
 and scientific acceptance remain separate gates; source alone closes none of them.
+
+## Native capture preparation
+
+Eligible native CalcJobs choose exactly
+`export QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json`
+before stock script generation. Noneligible native jobs retain
+`unset QCL_NEGF_CAPTURE_SPEC`. Ordinary spec1 behavior is unchanged. Native
+`qcl-negf.capture-spec.v3` has the original eight fields plus the single
+`native_performance={run_uuid: actual CALL-chain run UUID}` operand; request ID is
+not run UUID. Safe positive provider attempt and null CPU/scratch are required.
+Original plan bytes, literal eleven native argv and Code/release stay unchanged.
+
+Only after stock AiiDA creates and fully reads back the unique genuine
+`native_submit_script` does preparation qualify the actual original graph through
+the actor and generate the compact spec. It sends no unused four-pin producer
+DTO. One bounded candidate/token is retained per preparation. Retries re-read
+the graph and full original bytes under the same nonrefundable budget.
+
+Before stock sandbox upload, preparation permits either that exact candidate
+under the original owned directory identity, or verified absence of both the
+fixed target and reserved temporary name. Unknown/stale files, symlinks,
+hardlinks, changed parent and exhausted verification credit raise before upload.
+The fixed final file is created once with exclusive/no-follow write access0600;
+no temporary publication, link, rename or named deletion is performed. The old
+reserved temporary name is checked only for absence. A partial or foreign
+residual is retained and preparation aborts. After creation, only full SAME_C
+on the same own inode with determined closes permits return, including recovery
+from an ordinary late optional error. ABSENT optional-off is allowed only before
+successful creation; ENOENT after creation cannot prove a renamed inode gone.
+Unconfirmed residuals cannot be adopted by a retry. Genuine CREATE and graph
+failures remain mandatory; cancellation stays primary when proof or FD close
+also fails. No script rewrite, second CREATE, skip-submit flag or
+provenance-exclude workaround is used.
+
+Native retrieval declares the five existing controls plus optional fixed
+`performance-source.json`. Verified absence yields the genuine core-five
+retrieved Folder; observed present and declared yields core six. Raw performance
+trees are not retrieved. Opaque sidecar bytes do not provide a public technical
+context or replace original access/provenance checks.
+
+SOURCE_L controls exercise actual stock presubmit, private ORM CREATE, selected
+Platform script grammar and the existing Runner launcher/Results supervisor with
+fresh fake executables. Missing optional spec keeps one solver spawn and its
+exit status. Installed native origin, result-root birth/RO lease/NFS, current and
+retained available R5, service/package qualification and scientific acceptance
+are separate open gates.
