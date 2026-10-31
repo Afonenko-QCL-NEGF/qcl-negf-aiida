@@ -1330,8 +1330,18 @@ def _native_contexts(root, source, plan_ref, model_ref, args, ledger):
         _fail('source_identity_mismatch','native_effective_model')
     diagnostics=None if diagnostic is None else diagnostic.declaration
     observations=None if observation is None else observation.declaration
-    if observations is not None and observations.get('source_mode')=='completed_restore':
-        _fail('source_unavailable','qualified_immediate_parent_context')
+    parent_manifest=parent_checkpoint=None
+    if observation is not None:
+        try:
+            parent_manifest=observation.parent_manifest
+            parent_checkpoint=observation.parent_checkpoint
+        except AttributeError:
+            _fail('source_unavailable','qualified_immediate_parent_context')
+        if observations.get('source_mode')=='completed_restore':
+            if type(parent_manifest) is not dict or type(parent_checkpoint) is not dict:
+                _fail('source_unavailable','qualified_immediate_parent_context')
+        elif parent_manifest is not None or parent_checkpoint is not None:
+            _fail('source_unavailable','qualified_immediate_parent_context')
     if observation is not None and (observation.invocation!=manifest['invocation'] or diagnostic.invocation!=manifest['invocation']):
         _fail('source_identity_mismatch','native_final_invocation')
     # Public objects are detached and exclusively owned after successful close.
@@ -1339,7 +1349,8 @@ def _native_contexts(root, source, plan_ref, model_ref, args, ledger):
     ledger.reserve('closed context projection',metadata=4096+_native_weight(source))
     context=dict(source=source,manifest=manifest,manifest_ref=state['manifest'],checkpoint=checkpoint,
         diagnostics=diagnostics,observations=observations,plan=None if observation is None else observation.plan,
-        model=None if observation is None else observation.model,parent_manifest=None,parent_checkpoint=None)
+        model=None if observation is None else observation.model,
+        parent_manifest=parent_manifest,parent_checkpoint=parent_checkpoint)
     validate_outward_native_source(source,**{k:v for k,v in context.items() if k!='source'})
     ledger.workspaces()
     return context
