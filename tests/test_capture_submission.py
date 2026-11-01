@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import shlex
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,52 @@ def test_native_origin_literal_eleven_args_and_fixed_capture_exports(native_grap
         process.close()
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize('native_graph', ['publication'], indirect=True)
+def test_engineering_fixture_stock_command_from_full_original_plan(native_graph, monkeypatch):
+    f = native_graph
+    monkeypatch.setattr(orm.Computer, 'get_scheduler', lambda self: SlurmScheduler())
+    monkeypatch.setenv('QCL_NEGF_NATIVE_JOBS_ROOT', '/srv/qcl-negf/jobs')
+    process = instantiate_process(get_manager().get_runner(), QCLExecutionCalculation,
+        **{name: f['calc'].inputs[name] for name in
+           ('code', 'plan', 'source_graph', 'native_execution', 'execution_id', 'attempt', 'release_id')},
+        metadata={'options': scheduler_options({})})
+    try:
+        with SandboxFolder() as folder:
+            info = process.prepare_for_submission(folder)
+            args = info.codes_info[0].cmdline_params
+            assert args == ['native-publication-fixture', 'plan.json',
+                '/srv/qcl-negf/jobs/native/new-domain', '--execution-id', 'execution-1',
+                '--source-graph', 'source-graph.json', '--native-execution', 'native-execution.json',
+                '--native-calcjob-uuid', process.node.uuid]
+            with folder.open('plan.json', 'rb') as stream:
+                assert stream.read() == f['raw_plan']
+            assert not folder.isfile('capture-spec.json')
+            assert info.prepend_text.endswith('\nexport QCL_NEGF_CAPTURE_SPEC=capture-spec.json QCL_NEGF_NATIVE_CAPTURE_INPUT=native-execution.json')
+    finally:
+        process.close()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('native_graph', ['publication'], indirect=True)
+def test_engineering_fixture_scratch_refuses_before_any_upload(native_graph, monkeypatch):
+    from aiida_qcl_negf.native_actor import NativeActorUnavailable
+    f = native_graph
+    monkeypatch.setattr(orm.Computer, 'get_scheduler', lambda self: SlurmScheduler())
+    monkeypatch.setenv('QCL_NEGF_NATIVE_JOBS_ROOT', '/srv/qcl-negf/jobs')
+    process = instantiate_process(get_manager().get_runner(), QCLExecutionCalculation,
+        **{name: f['calc'].inputs[name] for name in
+           ('code', 'plan', 'source_graph', 'native_execution', 'execution_id', 'attempt', 'release_id')},
+        scratch_root=orm.Str('/scratch/fixture'), metadata={'options': scheduler_options({})})
+    try:
+        with SandboxFolder() as folder:
+            with pytest.raises(NativeActorUnavailable, match='engineering_fixture_scratch'):
+                process.prepare_for_submission(folder)
+            assert os.listdir(folder.abspath) == []
+    finally:
+        process.close()
+
+
 @pytest.fixture
 def ingress_process(native_graph,monkeypatch):
     f=native_graph
@@ -82,6 +129,76 @@ def ingress_process(native_graph,monkeypatch):
         'metadata':{'call_link_label':'native_ingress','options':scheduler_options({})}})
     try:yield process,f
     finally:process.close()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('native_graph', ['publication'], indirect=True)
+def test_engineering_fixture_genuine_CREATE_and_unchanged_native3(ingress_process):
+    from aiida_qcl_negf.native_actor import (load_native_launch, read_native_origin_inputs,
+                                            NativeActorUnavailable)
+    process, f = ingress_process
+    with SandboxFolder() as folder:
+        info = process.presubmit(folder)
+        raw = Path(folder.abspath, 'capture-spec.json').read_bytes()
+        spec = json.loads(raw)
+        assert spec['schema'] == 'qcl-negf.capture-spec.v3' and len(spec) == 9
+        assert spec['selection']['calcjob_uuid'] == process.node.uuid
+        assert spec['native_performance'] == {'run_uuid': f['run'].uuid}
+        assert spec['plan']['sha256'] == hashlib.sha256(f['raw_plan']).hexdigest()
+        script = process.node.outputs.native_submit_script
+        assert script.creator.uuid == process.node.uuid
+        with script.open(mode='rb') as stream:
+            generated = stream.read()
+        commands = [shlex.split(line) for line in generated.decode().splitlines()
+                    if "'native-publication-fixture'" in line]
+        assert len(commands) == 1 and commands[0][1:3] == ['native-publication-fixture', 'plan.json']
+        assert info.codes_info[0].cmdline_params[-1] == process.node.uuid
+        # Presubmit has no actual remote upload/job observation yet.
+        with pytest.raises(NativeActorUnavailable, match='invalid_workdir'):
+            load_native_launch(process.node.uuid, maximum_metadata_bytes=8*1024**2)
+        epoch = 'c1-' + process.node.uuid.replace('-', '') + '-' + f['native'].uuid.replace('-', '') + '-0'
+        original_native, original_script = read_native_origin_inputs(process.node.uuid,
+            source_epoch=epoch, maximum_metadata_bytes=8*1024**2)
+        assert original_native == f['raw_native'] and original_script == generated
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('native_graph', ['publication-malformed'], indirect=True)
+def test_engineering_fixture_malformed_refuses_before_any_upload(ingress_process):
+    from aiida_qcl_negf.native_actor import NativeActorUnavailable
+    process, _ = ingress_process
+    with SandboxFolder() as folder:
+        with pytest.raises(NativeActorUnavailable, match='engineering_fixture_profile'):
+            process.prepare_for_submission(folder)
+        assert os.listdir(folder.abspath) == []
+        assert process.node.get_job_id() is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('native_graph', ['publication'], indirect=True)
+@pytest.mark.parametrize('debit', [131072, 5048096])
+def test_engineering_fixture_reserve_refusal_preserves_primary(ingress_process, monkeypatch, debit):
+    from aiida_qcl_negf import native_actor
+    process, _ = ingress_process
+    primary = native_actor.NativeActorUnavailable('metadata_budget')
+    charge = native_actor._Reads.charge
+    fired = []
+
+    def refuse(self, size):
+        if size == debit:
+            fired.append(size)
+            raise primary
+        return charge(self, size)
+
+    monkeypatch.setattr(native_actor._Reads, 'charge', refuse)
+    with SandboxFolder() as folder:
+        with pytest.raises(native_actor.NativeActorUnavailable) as caught:
+            process.prepare_for_submission(folder)
+        assert fired == [debit]
+        assert caught.value is primary
+        assert str(caught.value) == 'metadata_budget'
+        assert os.listdir(folder.abspath) == []
+        assert process.node.get_job_id() is None
 
 
 @pytest.mark.integration
@@ -228,7 +345,7 @@ def test_native3_actual_stock_script_matches_published_Platform_and_B(ingress_pr
     from types import SimpleNamespace
     from aiida_qcl_negf import native_actor,saved_sources
     process,f=ingress_process
-    source=Path(__file__).parents[2]/'p07-p1-platform'/'ops'/'native_attempt.py'
+    source=Path(__file__).parents[2]/'qcl-negf-platform'/'ops'/'native_attempt.py'
     monkeypatch.syspath_prepend(str(source.parent))
     spec=importlib.util.spec_from_file_location('ingress_platform_peer',source);peer=importlib.util.module_from_spec(spec);spec.loader.exec_module(peer)
     assert Path(peer.__file__).resolve()==source.resolve()
@@ -255,7 +372,7 @@ def test_native3_missing_optional_candidate_existing_launcher_runs_one_fake_solv
         solver=tmp_path/'fake-solver';count=tmp_path/'solver-count'
         solver.write_text('#!'+sys.executable+'\nfrom pathlib import Path\nimport time\np=Path('+repr(str(count))+')\np.write_text((p.read_text() if p.exists() else "")+"spawn\\n")\ntime.sleep(0.1)\nraise SystemExit(17)\n');solver.chmod(0o700)
         capture=tmp_path/'capture-cli';capture.write_text('#!/bin/bash\nexec '+shlex.join([sys.executable,'-c','from qcl_negf_results.cli import main;main()'])+' "$@"\n');capture.chmod(0o700)
-        source=Path(__file__).parents[2]/'p05-whole70-runner'/'nix'/'launcher.sh'
+        source=Path(__file__).parents[2]/'QCLNEGFRunner.jl'/'nix'/'launcher.sh'
         launcher=tmp_path/'launcher';launcher.write_text(source.read_text().replace('@bash@','/bin/bash').replace('@solver@',str(solver)).replace('@capture@',str(capture)));launcher.chmod(0o700)
         before=set(Path(folder.abspath).iterdir())
         result=subprocess.run([str(launcher),*info.codes_info[0].cmdline_params],cwd=folder.abspath,

@@ -5,6 +5,7 @@ import importlib
 import importlib.util
 import inspect
 import io
+import json
 import os
 import shlex
 import subprocess
@@ -45,23 +46,30 @@ def digest(node, raw):
 
 
 @pytest.fixture
-def native_graph(aiida_profile_clean, aiida_computer_local):
+def native_graph(aiida_profile_clean, aiida_computer_local, request):
     computer = aiida_computer_local()
     # Public properties on this isolated Computer. No installed plugin claim.
     computer.scheduler_type = "qcl_negf.native_slurm"
     computer.transport_type = "qcl_negf.native_local"
     code = orm.InstalledCode(computer=computer, filepath_executable="/nix/store/synthetic/bin/qcl-negf",
         default_calc_job_plugin="qcl_negf.execution").store()
-    frozen=deepcopy(SEED["plan"])
-    frozen["nodes"]=[dict(estimated_memory_bytes=256,stage_id="standalone",required_evidence=[],
-        comparable_fingerprint=frozen["fingerprint"],execution_id=frozen["executions"][0]["id"],
-        comparison_reference=None,forbidden_evidence=[],priority=0,reserve=False,
-        comparison_kind="controlled_axis",controlled_paths=[],depends_on=[])]
+    publication = getattr(request, 'param', None) in ('publication', 'publication-malformed')
+    if publication:
+        frozen = json.loads((Path(__file__).parent/'fixtures/native-publication-plan.json').read_bytes())
+        if request.param == 'publication-malformed':
+            frozen['points'][0]['temperature_K'] += 1
+    else:
+        frozen=deepcopy(SEED["plan"])
+        frozen["nodes"]=[dict(estimated_memory_bytes=256,stage_id="standalone",required_evidence=[],
+            comparable_fingerprint=frozen["fingerprint"],execution_id=frozen["executions"][0]["id"],
+            comparison_reference=None,forbidden_evidence=[],priority=0,reserve=False,
+            comparison_kind="controlled_axis",controlled_paths=[],depends_on=[])]
     raw_plan = b" \n" + encode(frozen) + b"\n"
     raw_graph = b"\n" + encode(SEED["graph"])
     plan, graph = blob(raw_plan).store(), blob(raw_graph).store()
     native = blob(b"{}")
     execution = deepcopy(SEED["execution_binding"])
+    execution['execution_id'] = frozen['executions'][0]['id']
     execution["input_plan"] = digest(plan, raw_plan)
     execution["source_graph"] = digest(graph, raw_graph)
     execution["code"].update(code_uuid=code.uuid, computer_uuid=computer.uuid,
@@ -201,6 +209,7 @@ def test_origin_port_rejects_noncanonical_epoch_before_orm(monkeypatch,epoch):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize('native_graph', [None, 'publication'], indirect=True)
 @pytest.mark.parametrize("fault",["missing_script","raw_repo_only","input_script","RETURN_script","calcfunction_script",
     "missing_call","foreign_call","wrong_plan_input","nonfile_script","oversized_script","small_budget"])
 def test_origin_port_requires_original_typed_graph_and_bounded_files(native_graph,fault):
