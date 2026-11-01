@@ -3,10 +3,84 @@ import hashlib
 import json
 import secrets
 import re
+import os
+from copy import deepcopy
 from uuid import UUID
 
 MIB = 1024 * 1024
 CAPTURE_RESERVE_BYTES = 104 * MIB
+
+
+def _native_publication_fixture_mode(plan, *, execution_id, reserve=None):
+    """Select one full constructor profile; this grants no execution authority.
+
+    The caller's existing read ledger prepays the additional projection and
+    canonical workspace. Original input bytes and their hashes remain untouched.
+    """
+    if plan.get('root_definition_id') != 'native-publication-fixture-v1':
+        return None
+    if execution_id != 'execution-1':
+        raise ValueError('native publication fixture execution differs')
+    from qcl_negf_results.model import canonical_bytes
+
+    if reserve is not None:
+        reserve(64 * 2048)  # Bounded depth-first accounting traversal, before copying.
+    count = 0
+    def workspace(value, depth=0):
+        nonlocal count
+        count += 1
+        if depth > 64 or count > 16384:
+            raise ValueError('native publication fixture object bound')
+        base = 128
+        if type(value) is str:
+            return base + 8 * len(value)
+        if type(value) is dict:
+            return base + 96 * len(value) + sum(
+                workspace(k, depth + 1) + workspace(v, depth + 1)
+                for k, v in value.items())
+        if type(value) is list:
+            return base + 16 * len(value) + sum(workspace(v, depth + 1) for v in value)
+        if type(value) is int:
+            return base + 8 * (value.bit_length() // 3 + 2)
+        if value is None or type(value) in (bool, float):
+            return base
+        raise ValueError('native publication fixture value type')
+    charge = 4 * workspace(plan)  # Copy, normalized strings, canonical children and joins.
+    if reserve is not None:
+        reserve(charge)
+    value = deepcopy(plan)
+    value.pop('fingerprint', None)
+    names = {'reference-2019-70k.yaml', 'analytical-diagnostic.yaml',
+             'native-publication-fixture.yaml'}
+    try:
+        for execution in value['executions']:
+            histories = [execution['provenance']['sources']] + [
+                section['input_assigning_histories']
+                for section in execution['resolved_snapshot']['sections'].values()]
+            for history in histories:
+                if type(history) is not dict:
+                    raise ValueError('native publication fixture history shape')
+                for key, locators in history.items():
+                    if type(locators) is not list or any(type(v) is not str for v in locators):
+                        raise ValueError('native publication fixture locator shape')
+                    normalized = []
+                    for locator in locators:
+                        path, separator, fragment = locator.partition('#')
+                        if path.startswith('/'):
+                            name = os.path.basename(path)
+                            if name not in names:
+                                raise ValueError('native publication fixture unknown source')
+                            locator = 'fixture-source:' + name + separator + fragment
+                        normalized.append(locator)
+                    history[key] = normalized
+            execution['resource_estimate'].pop('worker_capacity', None)
+        digest = hashlib.sha256(canonical_bytes(value)).hexdigest()
+    except (KeyError, TypeError) as error:
+        raise ValueError('native publication fixture profile shape') from error
+    # Independently matched against the source-owned Julia planner's full v3 profile.
+    if digest != '376aedbbfa31311f40bdffdb988242613629d128c0a97e8cdd2d6b14b8c42e47':
+        raise ValueError('native publication fixture full profile differs')
+    return 'native-publication-v1'
 
 
 def _capture_spec(plan_raw, plan, *, calcjob_uuid, execution_id, attempt, scratch_root=None,

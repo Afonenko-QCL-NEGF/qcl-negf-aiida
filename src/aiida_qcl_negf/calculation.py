@@ -390,6 +390,16 @@ class QCLExecutionCalculation(CalcJob):
         native, plan, raws = _validate_native_inputs(self.inputs.plan, self.inputs.source_graph,
             self.inputs.native_execution, self.inputs.code, self.inputs.execution_id.value, budget)
         validate_plan(plan)
+        from .capture_spec import _native_publication_fixture_mode
+        try:
+            engineering_fixture = _native_publication_fixture_mode(plan,
+                execution_id=self.inputs.execution_id.value, reserve=budget.charge)
+        except NativeActorUnavailable:
+            raise
+        except ValueError as error:
+            raise NativeActorUnavailable('engineering_fixture_profile') from error
+        _need(engineering_fixture is None or 'scratch_root' not in self.inputs,
+              'engineering_fixture_scratch_unavailable')
         _need(type(self.inputs.attempt.value) is int and self.inputs.attempt.value > 0,
               "transport_scalar_inputs")
         _need("release_id" in self.inputs and
@@ -408,7 +418,8 @@ class QCLExecutionCalculation(CalcJob):
                 stream.write(raw)
         code = CodeInfo()
         code.code_uuid = self.inputs.code.uuid
-        code.cmdline_params = ["run-plan", "plan.json", output, "--execution-id",
+        command = 'native-publication-fixture' if engineering_fixture is not None else 'run-plan'
+        code.cmdline_params = [command, "plan.json", output, "--execution-id",
                                self.inputs.execution_id.value, "--source-graph", "source-graph.json",
                                "--native-execution", "native-execution.json",
                                "--native-calcjob-uuid", self.node.uuid]

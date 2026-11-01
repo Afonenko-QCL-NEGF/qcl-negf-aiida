@@ -2,8 +2,90 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
+
+import pytest
 
 from aiida_qcl_negf.capture_spec import CAPTURE_RESERVE_BYTES, capture_spec
+
+
+def publication_plan():
+    """Source-owned constructor input, with relocated synthetic provenance paths."""
+    return json.loads((Path(__file__).parent / 'fixtures/native-publication-plan.json').read_bytes())
+
+
+def fixture_mode(plan, execution_id='execution-1'):
+    from aiida_qcl_negf import capture_spec as module
+    selector = getattr(module, '_native_publication_fixture_mode', None)
+    assert callable(selector), 'missing strict full-profile engineering selector'
+    return selector(plan, execution_id=execution_id)
+
+
+def test_engineering_selector_full_profile_preserves_original():
+    plan = publication_plan()
+    before = copy.deepcopy(plan)
+    assert fixture_mode(plan) == 'native-publication-v1'
+    assert plan == before
+    assert fixture_mode({'root_definition_id': 'ordinary'}) is None
+    assert fixture_mode({}) is None
+
+
+@pytest.mark.parametrize('fault', ['label', 'temperature', 'point', 'execution', 'extra',
+                                  'history', 'unknown_path', 'path_alias', 'rule_fragment'])
+def test_engineering_selector_rejects_reserved_profile_mutations(fault):
+    plan = publication_plan()
+    execution = plan['executions'][0]
+    if fault == 'label':
+        execution['label'] += ' changed'
+    elif fault == 'temperature':
+        plan['points'][0]['temperature_K'] += 1
+    elif fault == 'point':
+        plan['points'].append(copy.deepcopy(plan['points'][0]))
+    elif fault == 'execution':
+        plan['executions'].append(copy.deepcopy(execution))
+    elif fault == 'extra':
+        plan['unknown_engineering_field'] = True
+    else:
+        history = execution['provenance']['sources']
+        key = next(key for key, values in history.items() if any(v.startswith('/') for v in values))
+        index = next(i for i, value in enumerate(history[key]) if value.startswith('/'))
+        value = history[key][index]
+        if fault == 'history':
+            history[key].append(value)
+        elif fault == 'unknown_path':
+            history[key][index] = '/fixture/unreviewed.yaml'
+        elif fault == 'path_alias':
+            history[key][index] = value.partition('#')[0] + '/' + ('#' + value.partition('#')[2] if '#' in value else '')
+        else:
+            history[key][index] = value + '#changed-rule'
+    with pytest.raises(ValueError, match='fixture'):
+        fixture_mode(plan)
+
+
+def test_engineering_selector_only_ignores_runtime_capacity_and_locator_prefixes():
+    plan = publication_plan()
+    plan['fingerprint'] = 'a' * 64
+    plan['executions'][0]['resource_estimate']['worker_capacity'] = {'different_host': True}
+    assert fixture_mode(plan) == 'native-publication-v1'
+    with pytest.raises(ValueError, match='fixture'):
+        fixture_mode(plan, 'execution-2')
+
+
+@pytest.mark.parametrize('refusal', [0, 1])
+def test_engineering_selector_prepays_workspace_before_copy(monkeypatch, refusal):
+    from aiida_qcl_negf import capture_spec as module
+    selector = getattr(module, '_native_publication_fixture_mode', None)
+    assert callable(selector), 'missing strict full-profile engineering selector'
+    copied, charges = [], []
+    monkeypatch.setattr(module, 'deepcopy', lambda value: copied.append(value))
+    def refuse(size):
+        charges.append(size)
+        if len(charges) > refusal:
+            raise ValueError('unfunded fixture workspace')
+    with pytest.raises(ValueError, match='unfunded fixture workspace'):
+        selector(publication_plan(), execution_id='execution-1', reserve=refuse)
+    assert copied == []
+    assert len(charges) == refusal + 1 and all(size > 0 for size in charges)
 
 
 def test_capture_spec_uses_actual_calcjob_identity_and_reserves_no_new_grant():

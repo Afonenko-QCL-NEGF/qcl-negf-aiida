@@ -51,6 +51,30 @@ independent of optional capture, which remains unset on this branch. The
 selected Runner and Platform script validator must support this exact command;
 this source change does not activate an older installed composition.
 
+### Инженерная проверка публикации
+
+Для source-owned плана `native-publication-fixture-v1` выбирается отдельная
+фиксированная команда `native-publication-fixture` с теми же одиннадцатью
+аргументами. Selector проверяет полный профиль конструктора, включая физические
+параметры, сетку, политики вывода и историю происхождения. Из сравнения исключены
+только внешний fingerprint, сведения о доступной worker capacity и префиксы
+разрешённых путей к трём исходным YAML. Имена файлов, фрагменты правил и порядок
+истории сохраняются. Иной профиль с зарезервированным ID отклоняется до записи
+файлов для отправки. Обычные планы продолжают использовать `run-plan`.
+
+Это выбор маршрута, а не разрешение на вычисление. Подлинные INPUT/CALL/CREATE,
+исходные bytes/UUID/SHA, Code, release, native admission и capture-spec-v3
+проверяются прежними владельцами. Дополнительная память selector предварительно
+оплачивается из того же metadata budget до копирования и canonical encoding.
+Новых ORM-портов, полей capture или научных критериев не добавлено.
+
+Fixture создаёт явно несошедшийся результат через публичные конструкторы Core и
+штатную публикацию Runner, без SCBA/Poisson. Успешный процесс является инженерным
+свидетельством только после отдельных native проверок. Parser сохраняет
+`ERROR_SCIENTIFIC_FAILURE`, а WorkChain может завершиться
+`ERROR_EXECUTION_FAILED`; эти статусы не превращаются в научный успех. Установка,
+полный provenance и resource finish проверяются отдельно от source/L тестов.
+
 Service admission resolves the original plan through the existing full
 `native_execution.input_plan` NodeFile UUID. It requires the exact stored
 SinglefileData, length, SHA and original bytes equal to the submitted plan.

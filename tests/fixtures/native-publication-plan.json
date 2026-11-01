@@ -1,0 +1,3018 @@
+{
+  "fingerprint": "b2c46f5b59509d8060ac2b928297c5179eece352d0e192bf8b31927f324862d2",
+  "executions": [
+    {
+      "provenance": {
+        "sources": {
+          "production.hilbert_columns": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.save_plots": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "solver.tolerances.hartree": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.trend.max_regression": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.energy_trust_margin": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.optical_edge_tolerance": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.checkpoint_every_outer": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.poisson_gauge": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.progress.event_log_file": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "kernel_construction.maximum_lookup_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.convergence.angular_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "numerical.momentum_max": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.residual_chunk": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.mass_density": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.auto.minimum_memory_reserve_bytes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.reference_profile": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "kernel_construction.lookup_power": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.sound_velocity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.retarded_real_part": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.repetitions": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "execution.auto.workspace_complex_arrays_per_energy_block": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.trend.window": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.light_max_momentum_points": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.device_geometry.cavity_length": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.low_rank.relative_tolerance": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.causality": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.spatial_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.maximum_poisson_iterations": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "scales.energy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.verify_fft_roundoff": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.snapshot_every_outer": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.progress.terminal": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "scattering.acoustic_phonon": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "execution.strategy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "output.report_directory": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "scales.reference_mass_ratio": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "domain_adaptation.mode": [
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "algorithms.transverse_momentum": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.impurity_screening_wavenumber": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.interface_correlation_length": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.keldysh": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.acoustic_deformation_potential": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.save_comparison_plots": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.progress.dashboard_file": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.julia_threads": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "physical.reference_energy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.maximum_scba_iterations": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.tolerances.spectral_identity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.anderson.damping": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.mode": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:convergence-policy"
+          ],
+          "run.classification": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "algorithms.localization": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.sum_rule": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.lo_screening_wavenumber": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.embedding": [
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "algorithms.energy_shift": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "numerical.energy_min": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "output.device_geometry.ridge_width": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.save_comparison_csv": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.blas_threads": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "scattering.interface_roughness": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "kernel_construction.strict": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "kernel_construction.impurity_angular_tolerance": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.solver_backend": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.neutrality": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.target_fixed_point": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.density": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.light_max_snapshots": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "solver.convergence.diagnostic_quality.positivity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.spin_degeneracy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.embedding_periods": [
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "algorithms.mixing": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.anderson.regularization": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.required_consecutive_passes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.observables": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.auto.minimum_energy_chunk": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.lo_temperature": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:temperature-axis"
+          ],
+          "production.progress_every_outer": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "physical.donor_sheet_density": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.causality": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.worker_count": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "output.checkpoint_prefix": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.auto.hilbert_columns_per_worker": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.comparison_profiles": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "execution.auto.workspace_budget_fraction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.temperatures": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "algorithms.anderson.history_depth": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "scattering.alloy_disorder": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "study.convergence.spatial_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "execution.auto.minimum_outer_parallel_threads": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "scattering.ionized_impurity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.tolerances.collision": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.primitive_cell_volume": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "kernel_construction.validation_fractions": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.progress.significant_digits": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.positivity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.auto.large_basis_threshold": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.photon_energy_max": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "scattering.lo_phonon": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.tolerances.fft_roundoff": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.convergence.momentum_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "study.photon_energy_points": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.auto.memory_reserve_fraction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.poisson_mixing": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.trend.max_oscillation": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.save_csv": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "output.debug_hdf5": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.voltages_per_period": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "physical.ionization_fraction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.basis_periods": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.convergence.trend.promising_threshold": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.outer_threshold": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.high_frequency_relative_permittivity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.fail_on_thread_mismatch": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.self_energy_mixing": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.low_rank.maximum_rank": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.minimum_poisson_iterations": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.validation_windows.momentum_tail_fraction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.angular_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "output.snapshot_every_scba": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.strict_attempt_iterations": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.live_visualization": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "output.progress.enabled": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.voltage_per_period": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.poisson": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.energy_max": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "study.mode": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "physical.interfaces": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.kernel_build": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.validation_windows.energy_tail_fraction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.phase_timing": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "output.progress.latest_snapshot_file": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.position_origin": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.lattice_temperature": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:temperature-axis"
+          ],
+          "numerical.longitudinal_momentum_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.tolerances.self_energy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.normalization": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.imaginary_part": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.self_energy_structure": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.self_energy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.enabled": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.lo_phonon_energy": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.contraction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.methods": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "numerical.energy_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.normalization": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.dyson": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.alloy_potential": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "physical.field_bias": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.energy_edge": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "kernel_construction.angular_validation_pairs": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.keldysh": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.progress.human_every": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.light_max_space_points": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "kernel_construction.relative_tolerance": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.checkpoint_every_scba": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.photon_energy_min": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.trend.minimum_reduction": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.light_max_energy_points": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "run.description": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.fail_fast": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.tail": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "kernel_construction.initial_lookup_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.stagnation_window": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "scales.length": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "algorithms.hilbert": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "solver.tolerances.current_continuity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "study.calculate_optical_response": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "production.progress_every_scba": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "physical.static_relative_permittivity": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "run.name": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:run-identity"
+          ],
+          "solver.convergence.minimum_scba_iterations": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.momentum_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "execution.auto.blocks_per_worker": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.directory": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.required_consecutive_poisson_passes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "execution.auto.energy_chunk_alignment": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.coarse_wait_iterations": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.energy_chunk": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.save_expert_markdown": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "production.parallel_backend": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.diagnostic_quality.observables": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.tolerances.power": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "solver.convergence.stagnation_relative_improvement": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "solver.convergence.required_consecutive_scba_passes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.resume": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "algorithms.occupation_normalization": [
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "numerical.basis_states": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml"
+          ],
+          "output.save_full_state": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+          ],
+          "study.convergence.energy_nodes": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+          ],
+          "physical.layers": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.longitudinal_momentum_max": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "output.device_geometry.periods": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "numerical.seed_broadening": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml",
+            "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+          ],
+          "execution.auto.energy_jobs_per_worker": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ],
+          "physical.interface_roughness_height": [
+            "/fixture/runner/examples/config/reference-2019-70k.yaml"
+          ]
+        }
+      },
+      "purpose": "benchmark",
+      "effective_inputs": {
+        "energy_nodes": 9,
+        "energy_min_eV": -0.3,
+        "seed": {
+          "grid_floor_eV": 0.15,
+          "rule": "explicit_requested",
+          "grid_floor_scaled": 1.4999999999999998,
+          "requested_scaled": 0.012499999999999999,
+          "effective_scaled": 0.012499999999999999,
+          "clamped": false,
+          "effective_eV": 0.00125,
+          "working_eta_eV": 0.0,
+          "requested_eV": 0.00125
+        },
+        "energy_max_eV": 0.9,
+        "energy_shift": "sparse_plan"
+      },
+      "variant_id": "baseline",
+      "resolved_configuration": {
+        "run": {
+          "name": "native-publication-fixture-v1-baseline",
+          "description": "Канонический паспорт физической модели QCL; запуск задаётся научным исследованием.",
+          "classification": "study"
+        },
+        "output": {
+          "light_max_momentum_points": 64,
+          "progress": {
+            "significant_digits": 4,
+            "event_log_file": "progress/events.csv",
+            "terminal": false,
+            "enabled": true,
+            "latest_snapshot_file": "progress/latest.csv",
+            "human_every": 5,
+            "dashboard_file": null
+          },
+          "resume": false,
+          "checkpoint_prefix": "state",
+          "snapshot_every_outer": 1,
+          "save_plots": false,
+          "save_comparison_plots": true,
+          "light_max_space_points": 2048,
+          "save_expert_markdown": true,
+          "live_visualization": false,
+          "debug_hdf5": false,
+          "report_directory": "expert_report",
+          "save_csv": true,
+          "light_max_energy_points": 512,
+          "snapshot_every_scba": 64,
+          "light_max_snapshots": 3,
+          "device_geometry": {
+            "cavity_length": "1.8 mm",
+            "periods": 405,
+            "ridge_width": "150 μm"
+          },
+          "directory": "results/base",
+          "save_comparison_csv": true,
+          "fail_fast": false,
+          "save_full_state": true
+        },
+        "numerical": {
+          "longitudinal_momentum_max": "10.0 nm^-1",
+          "longitudinal_momentum_nodes": 3,
+          "momentum_max": "0.60 nm^-1",
+          "basis_states": 2,
+          "basis_periods": 1,
+          "energy_min": "-0.30 eV",
+          "angular_nodes": 4,
+          "energy_max": "0.90 eV",
+          "energy_nodes": 9,
+          "seed_broadening": "1.25 meV",
+          "energy_trust_margin": "80 meV",
+          "spatial_nodes": 25,
+          "momentum_nodes": 3
+        },
+        "scattering": {
+          "lo_phonon": false,
+          "acoustic_phonon": false,
+          "interface_roughness": false,
+          "alloy_disorder": false,
+          "ionized_impurity": false
+        },
+        "kernel_construction": {
+          "impurity_angular_tolerance": 1e-05,
+          "relative_tolerance": 0.0002,
+          "lookup_power": 2.0,
+          "validation_fractions": [
+            0.25,
+            0.5,
+            0.75
+          ],
+          "maximum_lookup_nodes": 513,
+          "strict": true,
+          "initial_lookup_nodes": 65,
+          "angular_validation_pairs": 3
+        },
+        "algorithms": {
+          "occupation_normalization": "paired_convex",
+          "embedding": "finite_chain",
+          "mixing": "linear",
+          "self_energy_structure": "full",
+          "kernel_build": "direct",
+          "energy_shift": "sparse_plan",
+          "localization": "pzp",
+          "contraction": "dense_blas",
+          "anderson": {
+            "damping": 1.0,
+            "regularization": 1e-12,
+            "history_depth": 6
+          },
+          "low_rank": {
+            "relative_tolerance": 0.0,
+            "maximum_rank": 0
+          },
+          "retarded_real_part": "kramers_kronig",
+          "transverse_momentum": "resolved",
+          "embedding_periods": 4,
+          "hilbert": "fft"
+        },
+        "study": {
+          "comparison_profiles": [],
+          "photon_energy_min": "1 meV",
+          "methods": [],
+          "voltages_per_period": [
+            "0.05 V"
+          ],
+          "optical_edge_tolerance": 0.0001,
+          "reference_profile": null,
+          "photon_energy_points": 321,
+          "calculate_optical_response": false,
+          "repetitions": 1,
+          "mode": "single",
+          "temperatures": [
+            "70.0 K"
+          ],
+          "photon_energy_max": "80 meV",
+          "convergence": {
+            "energy_nodes": [],
+            "angular_nodes": [],
+            "spatial_nodes": [],
+            "momentum_nodes": []
+          }
+        },
+        "production": {
+          "checkpoint_every_scba": 0,
+          "hilbert_columns": 32,
+          "worker_count": 1,
+          "energy_chunk": 64,
+          "phase_timing": false,
+          "checkpoint_every_outer": 0,
+          "verify_fft_roundoff": true,
+          "residual_chunk": 256,
+          "progress_every_scba": 1,
+          "parallel_backend": "threads",
+          "progress_every_outer": 1
+        },
+        "execution": {
+          "strategy": "manual",
+          "solver_backend": "production",
+          "fail_on_thread_mismatch": false,
+          "julia_threads": 1,
+          "blas_threads": 1,
+          "auto": {
+            "hilbert_columns_per_worker": 8,
+            "minimum_energy_chunk": 8,
+            "minimum_outer_parallel_threads": 4,
+            "energy_jobs_per_worker": 2,
+            "large_basis_threshold": 32,
+            "memory_reserve_fraction": 0.125,
+            "minimum_memory_reserve_bytes": 2147483648,
+            "energy_chunk_alignment": 8,
+            "workspace_budget_fraction": 0.05,
+            "blocks_per_worker": 4,
+            "workspace_complex_arrays_per_energy_block": 12
+          }
+        },
+        "scales": {
+          "length": "10 nm",
+          "energy": "0.1 eV",
+          "reference_mass_ratio": 0.067
+        },
+        "domain_adaptation": {
+          "mode": "none"
+        },
+        "solver": {
+          "self_energy_mixing": 0.1,
+          "convergence": {
+            "diagnostic_quality": {
+              "enabled": true,
+              "strict_attempt_iterations": 8,
+              "observables": 0.001,
+              "self_energy": 0.001,
+              "outer_threshold": 0.0001,
+              "normalization": 0.0001,
+              "keldysh": 0.001,
+              "target_fixed_point": 0.0001,
+              "causality": 1e-10,
+              "coarse_wait_iterations": 64,
+              "positivity": 1e-06,
+              "required_consecutive_passes": 3
+            },
+            "minimum_scba_iterations": 2,
+            "required_consecutive_poisson_passes": 2,
+            "minimum_poisson_iterations": 2,
+            "trend": {
+              "max_regression": 2.0,
+              "promising_threshold": 0.0001,
+              "max_oscillation": 10.0,
+              "window": 32,
+              "minimum_reduction": 0.5
+            },
+            "required_consecutive_scba_passes": 3,
+            "mode": "adaptive_working",
+            "stagnation_relative_improvement": 0,
+            "stagnation_window": 0
+          },
+          "poisson_mixing": 0.15,
+          "tolerances": {
+            "fft_roundoff": 1e-10,
+            "collision": 1e-08,
+            "energy_edge": 1e-06,
+            "observables": 0.0001,
+            "self_energy": 1e-08,
+            "poisson": 1e-11,
+            "density": 1e-07,
+            "poisson_gauge": 1e-10,
+            "tail": 1e-06,
+            "hartree": 1e-07,
+            "neutrality": 1e-10,
+            "normalization": 1e-08,
+            "sum_rule": 0.001,
+            "keldysh": 1e-08,
+            "power": 0.0001,
+            "causality": 1e-10,
+            "current_continuity": 1e-06,
+            "spectral_identity": 1e-09,
+            "positivity": 1e-10,
+            "imaginary_part": 1e-10,
+            "dyson": 1e-11
+          },
+          "validation_windows": {
+            "momentum_tail_fraction": 0.1,
+            "energy_tail_fraction": 0.05
+          },
+          "maximum_scba_iterations": 3,
+          "maximum_poisson_iterations": 3
+        },
+        "physical": {
+          "layers": [
+            {
+              "doped": false,
+              "aluminium_fraction": 0.25,
+              "relative_permittivity": 12.9,
+              "transverse_relative_mass": 0.08775,
+              "material": "AlGaAs",
+              "longitudinal_relative_mass": 0.08775,
+              "conduction_band_edge": "0.20775 eV",
+              "thickness": "3.26 nm"
+            },
+            {
+              "doped": false,
+              "aluminium_fraction": 0.0,
+              "relative_permittivity": 12.9,
+              "transverse_relative_mass": 0.067,
+              "material": "GaAs",
+              "longitudinal_relative_mass": 0.067,
+              "conduction_band_edge": "0 eV",
+              "thickness": "7.99 nm"
+            },
+            {
+              "doped": false,
+              "aluminium_fraction": 0.25,
+              "relative_permittivity": 12.9,
+              "transverse_relative_mass": 0.08775,
+              "material": "AlGaAs",
+              "longitudinal_relative_mass": 0.08775,
+              "conduction_band_edge": "0.20775 eV",
+              "thickness": "1.90 nm"
+            },
+            {
+              "doped": false,
+              "aluminium_fraction": 0.0,
+              "relative_permittivity": 12.9,
+              "transverse_relative_mass": 0.067,
+              "material": "GaAs",
+              "longitudinal_relative_mass": 0.067,
+              "conduction_band_edge": "0 eV",
+              "thickness": "8.40 nm"
+            },
+            {
+              "doped": true,
+              "aluminium_fraction": 0.0,
+              "relative_permittivity": 12.9,
+              "transverse_relative_mass": 0.067,
+              "material": "GaAs",
+              "longitudinal_relative_mass": 0.067,
+              "conduction_band_edge": "0 eV",
+              "thickness": "2.90 nm"
+            },
+            {
+              "doped": false,
+              "aluminium_fraction": 0.0,
+              "relative_permittivity": 12.9,
+              "transverse_relative_mass": 0.067,
+              "material": "GaAs",
+              "longitudinal_relative_mass": 0.067,
+              "conduction_band_edge": "0 eV",
+              "thickness": "5.16 nm"
+            }
+          ],
+          "high_frequency_relative_permittivity": 10.89,
+          "voltage_per_period": "56 mV",
+          "acoustic_deformation_potential": "7.0 eV",
+          "position_origin": "0 nm",
+          "interfaces": [
+            "0 nm",
+            "3.26 nm",
+            "11.25 nm",
+            "13.15 nm"
+          ],
+          "interface_roughness_height": "0.10 nm",
+          "lattice_temperature": "70.0 K",
+          "lo_phonon_energy": "36.7 meV",
+          "sound_velocity": "5240 m/s",
+          "alloy_potential": "0.60 eV",
+          "mass_density": "5317 kg/m^3",
+          "lo_temperature": "70.0 K",
+          "ionization_fraction": 1.0,
+          "impurity_screening_wavenumber": "0.20 nm^-1",
+          "lo_screening_wavenumber": "0.20 nm^-1",
+          "interface_correlation_length": "9.0 nm",
+          "spin_degeneracy": 2,
+          "donor_sheet_density": "4.5e14 m^-2",
+          "static_relative_permittivity": 12.9,
+          "field_bias": null,
+          "primitive_cell_volume": "4.5168e-29 m^3",
+          "reference_energy": "0 eV"
+        }
+      },
+      "resolved_snapshot": {
+        "derived": {
+          "effective_seed": {
+            "grid_floor_eV": 0.15,
+            "rule": "explicit_requested",
+            "grid_floor_scaled": 1.4999999999999998,
+            "requested_scaled": 0.012499999999999999,
+            "effective_scaled": 0.012499999999999999,
+            "clamped": false,
+            "effective_eV": 0.00125,
+            "working_eta_eV": 0.0,
+            "requested_eV": 0.00125
+          }
+        },
+        "raw_configuration": {
+          "run": {
+            "name": "native-publication-fixture-v1-baseline",
+            "description": "Канонический паспорт физической модели QCL; запуск задаётся научным исследованием.",
+            "classification": "study"
+          },
+          "output": {
+            "light_max_momentum_points": 64,
+            "progress": {
+              "significant_digits": 4,
+              "event_log_file": "progress/events.csv",
+              "terminal": false,
+              "enabled": true,
+              "latest_snapshot_file": "progress/latest.csv",
+              "human_every": 5,
+              "dashboard_file": null
+            },
+            "resume": false,
+            "checkpoint_prefix": "state",
+            "snapshot_every_outer": 1,
+            "save_plots": false,
+            "save_comparison_plots": true,
+            "light_max_space_points": 2048,
+            "save_expert_markdown": true,
+            "live_visualization": false,
+            "debug_hdf5": false,
+            "report_directory": "expert_report",
+            "save_csv": true,
+            "light_max_energy_points": 512,
+            "snapshot_every_scba": 64,
+            "light_max_snapshots": 3,
+            "device_geometry": {
+              "cavity_length": "1.8 mm",
+              "periods": 405,
+              "ridge_width": "150 μm"
+            },
+            "directory": "results/base",
+            "save_comparison_csv": true,
+            "fail_fast": false,
+            "save_full_state": true
+          },
+          "numerical": {
+            "longitudinal_momentum_max": "10.0 nm^-1",
+            "longitudinal_momentum_nodes": 3,
+            "momentum_max": "0.60 nm^-1",
+            "basis_states": 2,
+            "basis_periods": 1,
+            "energy_min": "-0.30 eV",
+            "angular_nodes": 4,
+            "energy_max": "0.90 eV",
+            "energy_nodes": 9,
+            "seed_broadening": "1.25 meV",
+            "energy_trust_margin": "80 meV",
+            "spatial_nodes": 25,
+            "momentum_nodes": 3
+          },
+          "scattering": {
+            "lo_phonon": false,
+            "acoustic_phonon": false,
+            "interface_roughness": false,
+            "alloy_disorder": false,
+            "ionized_impurity": false
+          },
+          "kernel_construction": {
+            "impurity_angular_tolerance": 1e-05,
+            "relative_tolerance": 0.0002,
+            "lookup_power": 2.0,
+            "validation_fractions": [
+              0.25,
+              0.5,
+              0.75
+            ],
+            "maximum_lookup_nodes": 513,
+            "strict": true,
+            "initial_lookup_nodes": 65,
+            "angular_validation_pairs": 3
+          },
+          "algorithms": {
+            "hilbert": "fft",
+            "embedding": "finite_chain",
+            "mixing": "linear",
+            "self_energy_structure": "full",
+            "kernel_build": "direct",
+            "energy_shift": "sparse_plan",
+            "localization": "pzp",
+            "contraction": "dense_blas",
+            "anderson": {
+              "damping": 1.0,
+              "regularization": 1e-12,
+              "history_depth": 6
+            },
+            "low_rank": {
+              "relative_tolerance": 0.0,
+              "maximum_rank": 0
+            },
+            "retarded_real_part": "kramers_kronig",
+            "transverse_momentum": "resolved",
+            "embedding_periods": 4,
+            "occupation_normalization": "paired_convex"
+          },
+          "study": {
+            "comparison_profiles": [],
+            "photon_energy_min": "1 meV",
+            "methods": [],
+            "voltages_per_period": [
+              "0.05 V"
+            ],
+            "optical_edge_tolerance": 0.0001,
+            "reference_profile": null,
+            "photon_energy_points": 321,
+            "calculate_optical_response": false,
+            "repetitions": 1,
+            "mode": "single",
+            "temperatures": [
+              "70.0 K"
+            ],
+            "photon_energy_max": "80 meV",
+            "convergence": {
+              "energy_nodes": [],
+              "angular_nodes": [],
+              "spatial_nodes": [],
+              "momentum_nodes": []
+            }
+          },
+          "production": {
+            "checkpoint_every_scba": 0,
+            "hilbert_columns": 32,
+            "worker_count": 1,
+            "energy_chunk": 64,
+            "phase_timing": false,
+            "checkpoint_every_outer": 0,
+            "verify_fft_roundoff": true,
+            "residual_chunk": 256,
+            "progress_every_scba": 1,
+            "parallel_backend": "threads",
+            "progress_every_outer": 1
+          },
+          "execution": {
+            "strategy": "manual",
+            "solver_backend": "production",
+            "fail_on_thread_mismatch": false,
+            "julia_threads": 1,
+            "blas_threads": 1,
+            "auto": {
+              "hilbert_columns_per_worker": 8,
+              "minimum_energy_chunk": 8,
+              "minimum_outer_parallel_threads": 4,
+              "energy_jobs_per_worker": 2,
+              "large_basis_threshold": 32,
+              "memory_reserve_fraction": 0.125,
+              "minimum_memory_reserve_bytes": 2147483648,
+              "energy_chunk_alignment": 8,
+              "workspace_budget_fraction": 0.05,
+              "blocks_per_worker": 4,
+              "workspace_complex_arrays_per_energy_block": 12
+            }
+          },
+          "scales": {
+            "length": "10 nm",
+            "energy": "0.1 eV",
+            "reference_mass_ratio": 0.067
+          },
+          "domain_adaptation": {
+            "mode": "none"
+          },
+          "solver": {
+            "self_energy_mixing": 0.1,
+            "convergence": {
+              "stagnation_window": 0,
+              "minimum_scba_iterations": 2,
+              "required_consecutive_poisson_passes": 2,
+              "minimum_poisson_iterations": 2,
+              "trend": {
+                "max_regression": 2.0,
+                "promising_threshold": 0.0001,
+                "max_oscillation": 10.0,
+                "window": 32,
+                "minimum_reduction": 0.5
+              },
+              "required_consecutive_scba_passes": 3,
+              "mode": "adaptive_working",
+              "stagnation_relative_improvement": 0,
+              "diagnostic_quality": {
+                "enabled": true,
+                "strict_attempt_iterations": 8,
+                "observables": 0.001,
+                "self_energy": 0.001,
+                "outer_threshold": 0.0001,
+                "normalization": 0.0001,
+                "keldysh": 0.001,
+                "target_fixed_point": 0.0001,
+                "causality": 1e-10,
+                "coarse_wait_iterations": 64,
+                "positivity": 1e-06,
+                "required_consecutive_passes": 3
+              }
+            },
+            "poisson_mixing": 0.15,
+            "tolerances": {
+              "dyson": 1e-11,
+              "collision": 1e-08,
+              "energy_edge": 1e-06,
+              "observables": 0.0001,
+              "self_energy": 1e-08,
+              "poisson": 1e-11,
+              "density": 1e-07,
+              "poisson_gauge": 1e-10,
+              "tail": 1e-06,
+              "hartree": 1e-07,
+              "neutrality": 1e-10,
+              "normalization": 1e-08,
+              "sum_rule": 0.001,
+              "keldysh": 1e-08,
+              "power": 0.0001,
+              "causality": 1e-10,
+              "current_continuity": 1e-06,
+              "spectral_identity": 1e-09,
+              "positivity": 1e-10,
+              "imaginary_part": 1e-10,
+              "fft_roundoff": 1e-10
+            },
+            "validation_windows": {
+              "momentum_tail_fraction": 0.1,
+              "energy_tail_fraction": 0.05
+            },
+            "maximum_scba_iterations": 3,
+            "maximum_poisson_iterations": 3
+          },
+          "physical": {
+            "layers": [
+              {
+                "thickness": "3.26 nm",
+                "aluminium_fraction": 0.25,
+                "relative_permittivity": 12.9,
+                "transverse_relative_mass": 0.08775,
+                "material": "AlGaAs",
+                "longitudinal_relative_mass": 0.08775,
+                "conduction_band_edge": "0.20775 eV",
+                "doped": false
+              },
+              {
+                "thickness": "7.99 nm",
+                "aluminium_fraction": 0.0,
+                "relative_permittivity": 12.9,
+                "transverse_relative_mass": 0.067,
+                "material": "GaAs",
+                "longitudinal_relative_mass": 0.067,
+                "conduction_band_edge": "0 eV",
+                "doped": false
+              },
+              {
+                "thickness": "1.90 nm",
+                "aluminium_fraction": 0.25,
+                "relative_permittivity": 12.9,
+                "transverse_relative_mass": 0.08775,
+                "material": "AlGaAs",
+                "longitudinal_relative_mass": 0.08775,
+                "conduction_band_edge": "0.20775 eV",
+                "doped": false
+              },
+              {
+                "thickness": "8.40 nm",
+                "aluminium_fraction": 0.0,
+                "relative_permittivity": 12.9,
+                "transverse_relative_mass": 0.067,
+                "material": "GaAs",
+                "longitudinal_relative_mass": 0.067,
+                "conduction_band_edge": "0 eV",
+                "doped": false
+              },
+              {
+                "thickness": "2.90 nm",
+                "aluminium_fraction": 0.0,
+                "relative_permittivity": 12.9,
+                "transverse_relative_mass": 0.067,
+                "material": "GaAs",
+                "longitudinal_relative_mass": 0.067,
+                "conduction_band_edge": "0 eV",
+                "doped": true
+              },
+              {
+                "thickness": "5.16 nm",
+                "aluminium_fraction": 0.0,
+                "relative_permittivity": 12.9,
+                "transverse_relative_mass": 0.067,
+                "material": "GaAs",
+                "longitudinal_relative_mass": 0.067,
+                "conduction_band_edge": "0 eV",
+                "doped": false
+              }
+            ],
+            "high_frequency_relative_permittivity": 10.89,
+            "voltage_per_period": "56 mV",
+            "acoustic_deformation_potential": "7.0 eV",
+            "position_origin": "0 nm",
+            "interfaces": [
+              "0 nm",
+              "3.26 nm",
+              "11.25 nm",
+              "13.15 nm"
+            ],
+            "interface_roughness_height": "0.10 nm",
+            "lattice_temperature": "70.0 K",
+            "lo_phonon_energy": "36.7 meV",
+            "sound_velocity": "5240 m/s",
+            "alloy_potential": "0.60 eV",
+            "mass_density": "5317 kg/m^3",
+            "lo_temperature": "70.0 K",
+            "ionization_fraction": 1.0,
+            "impurity_screening_wavenumber": "0.20 nm^-1",
+            "lo_screening_wavenumber": "0.20 nm^-1",
+            "interface_correlation_length": "9.0 nm",
+            "spin_degeneracy": 2,
+            "donor_sheet_density": "4.5e14 m^-2",
+            "static_relative_permittivity": 12.9,
+            "field_bias": null,
+            "primitive_cell_volume": "4.5168e-29 m^3",
+            "reference_energy": "0 eV"
+          }
+        },
+        "default_rule_sources": {
+          "Core:src/domain/algorithm_options.jl": "39ef82c2023f220efe1c896cb96c27dd90e22e8c20cb391e69ed54e32f210926",
+          "Core:src/numerics/reference/scba.jl": "fc4d8477f2df43dba9ca57480b215a33c9b91eed222614433b7db2541f227c71",
+          "Core:src/domain/electron_electron.jl": "75c7ce117663853b63204cf7b7a2debe266b03ff74478738aad833d0586a44c5",
+          "Runner:src/infrastructure/config/configuration.jl": "7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129",
+          "Core:src/numerics/optimized/kernels.jl": "a92d6def4c4aa473bfeda1de8d0f5d5efde4d2cfeaf814d926956f2e28af656c",
+          "Core:src/domain/types.jl": "f428a6c7ce2c7d4796d6be2983decffcdbfc25f21ec400a600038863f673e71b",
+          "Core:src/numerics/optimized/production_contracts.jl": "84e6a7109c89d75a7b4ac5421ac203c2650787dfd2b4f4c8983010cbf42a4d6d"
+        },
+        "schema": "qcl-negf-resolved-configuration-v1",
+        "sections": {
+          "physical_models": {
+            "input_assigning_histories": {},
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_physical_models",
+            "used": {
+              "lo_fixed_occupation": 0.0,
+              "screening": "fixed",
+              "screening_mass_ratio": 0.0,
+              "lo_population": "thermal",
+              "screening_temperature_K": {
+                "unit": "K",
+                "value": 0.0
+              },
+              "lo_mode_density_per_m3": {
+                "unit": "m^-3",
+                "value": 0.0
+              },
+              "dispersion": "parabolic",
+              "lo_decay_ps": {
+                "unit": "ps",
+                "value": 0.0
+              },
+              "electron_electron": {
+                "carrier_density_si": {
+                  "unit": "m^-2",
+                  "value": null
+                },
+                "transfer_wavenumber": null,
+                "effective_mass_ratio": null,
+                "electron_temperature": null,
+                "mode": "none",
+                "include_exchange": true,
+                "screening_dimension": 2
+              },
+              "nonparabolicity_per_eV": {
+                "unit": "eV^-1",
+                "value": 0.0
+              }
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "output": {
+            "input_assigning_histories": {
+              "output.report_directory": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.latest_snapshot_file": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.directory": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.save_plots": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ],
+              "output.save_full_state": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ],
+              "output.light_max_momentum_points": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.light_max_energy_points": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.light_max_snapshots": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ],
+              "output.save_comparison_plots": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.device_geometry.cavity_length": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.dashboard_file": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.event_log_file": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.checkpoint_prefix": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.fail_fast": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.save_expert_markdown": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.device_geometry.ridge_width": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.human_every": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.light_max_space_points": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.save_comparison_csv": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.snapshot_every_scba": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "output.snapshot_every_outer": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.save_csv": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ],
+              "output.live_visualization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ],
+              "output.device_geometry.periods": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.terminal": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ],
+              "output.debug_hdf5": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.enabled": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.progress.significant_digits": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "output.resume": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:output-policy"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_output",
+            "used": {
+              "light_max_momentum_points": 64,
+              "progress": {
+                "significant_digits": 4,
+                "event_log_file": "progress/events.csv",
+                "terminal": false,
+                "enabled": true,
+                "latest_snapshot_file": "progress/latest.csv",
+                "human_every": 5,
+                "dashboard_file": null
+              },
+              "resume": false,
+              "checkpoint_prefix": "state",
+              "snapshot_every_outer": 1,
+              "save_plots": false,
+              "save_comparison_plots": true,
+              "light_max_space_points": 2048,
+              "save_expert_markdown": true,
+              "live_visualization": false,
+              "report_directory": "expert_report",
+              "debug_hdf5": false,
+              "save_csv": true,
+              "light_max_energy_points": 512,
+              "snapshot_every_scba": 64,
+              "device_geometry": {
+                "cavity_length": {
+                  "unit": "m",
+                  "value": 0.0018000000000000002
+                },
+                "periods": 405,
+                "ridge_width": {
+                  "unit": "m",
+                  "value": 0.00015
+                }
+              },
+              "light_max_snapshots": 3,
+              "directory": "results/base",
+              "save_comparison_csv": true,
+              "fail_fast": false,
+              "save_full_state": true
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "numerical": {
+            "input_assigning_histories": {
+              "numerical.basis_states": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "numerical.energy_max": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "numerical.energy_trust_margin": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "numerical.energy_min": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "numerical.spatial_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "numerical.angular_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "numerical.momentum_max": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "numerical.longitudinal_momentum_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "numerical.longitudinal_momentum_max": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "numerical.seed_broadening": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "numerical.basis_periods": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "numerical.energy_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "numerical.momentum_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_numerical",
+            "used": {
+              "η_seed": {
+                "unit": "eV",
+                "value": 0.00125
+              },
+              "N_k": 3,
+              "N_φ": 4,
+              "N_z": 25,
+              "E_max": {
+                "unit": "eV",
+                "value": 0.9
+              },
+              "qz_max": {
+                "unit": "m^-1",
+                "value": 10000000000.0
+              },
+              "N_b": 2,
+              "E_min": {
+                "unit": "eV",
+                "value": -0.3
+              },
+              "M_E": {
+                "unit": "eV",
+                "value": 0.08
+              },
+              "P_basis": 1,
+              "N_qz": 3,
+              "N_E": 9,
+              "k_max": {
+                "unit": "m^-1",
+                "value": 600000000.0
+              }
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "scattering": {
+            "input_assigning_histories": {
+              "physical.sound_velocity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.voltage_per_period": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.high_frequency_relative_permittivity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.impurity_screening_wavenumber": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.interface_correlation_length": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.acoustic_deformation_potential": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lo_screening_wavenumber": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lo_temperature": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:temperature-axis"
+              ],
+              "physical.interfaces": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.donor_sheet_density": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.reference_energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lo_phonon_energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "scattering.lo_phonon": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "physical.spin_degeneracy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.position_origin": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lattice_temperature": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:temperature-axis"
+              ],
+              "physical.layers": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.mass_density": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "scattering.interface_roughness": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "scattering.alloy_disorder": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "physical.static_relative_permittivity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "scattering.ionized_impurity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "physical.primitive_cell_volume": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "physical.ionization_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.interface_roughness_height": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "scattering.acoustic_phonon": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "physical.alloy_potential": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "physical.field_bias": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_scattering",
+            "used": {
+              "alloy": false,
+              "IFR": false,
+              "LO": false,
+              "acoustic": false,
+              "impurity": false
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "kernel_construction": {
+            "input_assigning_histories": {
+              "kernel_construction.initial_lookup_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.strict": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.relative_tolerance": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.impurity_angular_tolerance": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.validation_fractions": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.lookup_power": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.maximum_lookup_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "kernel_construction.angular_validation_pairs": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_kernels",
+            "used": {
+              "impurity_angular_tolerance": 1e-05,
+              "relative_tolerance": 0.0002,
+              "lookup_power": 2.0,
+              "validation_fractions": [
+                0.25,
+                0.5,
+                0.75
+              ],
+              "maximum_lookup_nodes": 513,
+              "strict": true,
+              "initial_lookup_nodes": 65,
+              "angular_validation_pairs": 3
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "algorithms": {
+            "input_assigning_histories": {
+              "algorithms.self_energy_structure": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.retarded_real_part": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.workspace_complex_arrays_per_energy_block": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.localization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.mixing": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.large_basis_threshold": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.transverse_momentum": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.fail_on_thread_mismatch": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.occupation_normalization": [
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "execution.auto.energy_chunk_alignment": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.embedding": [
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "algorithms.kernel_build": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.low_rank.relative_tolerance": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.anderson.regularization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.julia_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "algorithms.energy_shift": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "algorithms.low_rank.maximum_rank": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.hilbert_columns_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.anderson.damping": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.workspace_budget_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.hilbert": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "execution.blas_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.contraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.memory_reserve_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_memory_reserve_bytes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.embedding_periods": [
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "algorithms.anderson.history_depth": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_outer_parallel_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.energy_jobs_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.solver_backend": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_energy_chunk": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.blocks_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.strategy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_algorithms",
+            "used": {
+              "hilbert": "fft",
+              "embedding": "finite_chain",
+              "solver_backend": "production",
+              "mixing": "linear",
+              "self_energy_structure": "full",
+              "anderson_damping": 1.0,
+              "anderson_regularization": 1e-12,
+              "kernel_build": "direct",
+              "anderson_history_depth": 6,
+              "energy_shift": "sparse_plan",
+              "localization": "pzp",
+              "contraction": "dense_blas",
+              "retarded_real_part": "kramers_kronig",
+              "transverse_momentum": "resolved",
+              "low_rank_maximum_rank": 0,
+              "low_rank_relative_tolerance": 0.0,
+              "embedding_periods": 4,
+              "occupation_normalization": "paired_convex"
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "study": {
+            "input_assigning_histories": {
+              "study.repetitions": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.photon_energy_min": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "study.optical_edge_tolerance": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "study.mode": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.photon_energy_max": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "study.convergence.energy_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.convergence.momentum_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.comparison_profiles": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.convergence.angular_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.photon_energy_points": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "study.temperatures": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.reference_profile": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.calculate_optical_response": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.methods": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.convergence.spatial_nodes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ],
+              "study.voltages_per_period": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:single-study"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_study",
+            "used": {
+              "comparison_profiles": [],
+              "photon_energy_min": {
+                "unit": "eV",
+                "value": 0.001
+              },
+              "methods": [],
+              "voltages_per_period": [
+                {
+                  "unit": "V",
+                  "value": 0.05
+                }
+              ],
+              "optical_edge_tolerance": 0.0001,
+              "reference_profile": null,
+              "photon_energy_points": 321,
+              "calculate_optical_response": false,
+              "repetitions": 1,
+              "mode": "single",
+              "temperatures": [
+                {
+                  "unit": "K",
+                  "value": 70.0
+                }
+              ],
+              "photon_energy_max": {
+                "unit": "eV",
+                "value": 0.08
+              },
+              "convergence": {
+                "energy_nodes": [],
+                "angular_nodes": [],
+                "spatial_nodes": [],
+                "momentum_nodes": []
+              }
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "production": {
+            "input_assigning_histories": {
+              "production.hilbert_columns": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.fail_on_thread_mismatch": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "production.checkpoint_every_outer": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.low_rank.maximum_rank": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "production.residual_chunk": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_memory_reserve_bytes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.embedding_periods": [
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "production.checkpoint_every_scba": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.retarded_real_part": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.workspace_complex_arrays_per_energy_block": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.mixing": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.kernel_build": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.low_rank.relative_tolerance": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.anderson.regularization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.hilbert": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "production.phase_timing": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "production.verify_fft_roundoff": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "production.progress_every_scba": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "execution.auto.minimum_energy_chunk": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.blocks_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.strategy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "algorithms.transverse_momentum": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.energy_chunk_alignment": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "production.progress_every_outer": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "production.worker_count": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "execution.julia_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "production.energy_chunk": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.hilbert_columns_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.anderson.damping": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.workspace_budget_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.anderson.history_depth": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "production.parallel_backend": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_outer_parallel_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.self_energy_structure": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.localization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.large_basis_threshold": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.occupation_normalization": [
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "algorithms.embedding": [
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "algorithms.energy_shift": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "execution.blas_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "algorithms.contraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.memory_reserve_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.energy_jobs_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.solver_backend": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_production",
+            "used": {
+              "checkpoint_every_scba": 0,
+              "hilbert_columns": 32,
+              "checkpoint_request": null,
+              "event_sink": null,
+              "worker_count": 1,
+              "phase_request": null,
+              "outer_iteration": 0,
+              "energy_chunk": 64,
+              "phase_timing": false,
+              "algorithms": {
+                "hilbert": "fft",
+                "embedding": "finite_chain",
+                "solver_backend": "production",
+                "mixing": "linear",
+                "self_energy_structure": "full",
+                "anderson_damping": 1.0,
+                "anderson_regularization": 1e-12,
+                "kernel_build": "direct",
+                "anderson_history_depth": 6,
+                "energy_shift": "sparse_plan",
+                "localization": "pzp",
+                "contraction": "dense_blas",
+                "retarded_real_part": "kramers_kronig",
+                "transverse_momentum": "resolved",
+                "low_rank_maximum_rank": 0,
+                "low_rank_relative_tolerance": 0.0,
+                "embedding_periods": 4,
+                "occupation_normalization": "paired_convex"
+              },
+              "checkpoint_every_outer": 0,
+              "memory_budget_bytes": 9223372036854775807,
+              "verify_fft_roundoff": true,
+              "residual_chunk": 256,
+              "progress_every_scba": 1,
+              "physics_markers": {
+                "cadence": 10,
+                "relative_mode_weight_floor": 1e-10,
+                "max_spectral_blocks": 512
+              },
+              "parallel_backend": "threads",
+              "progress_every_outer": 1
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "execution": {
+            "input_assigning_histories": {
+              "execution.auto.workspace_complex_arrays_per_energy_block": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.large_basis_threshold": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.fail_on_thread_mismatch": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.energy_chunk_alignment": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.julia_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "execution.auto.hilbert_columns_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.workspace_budget_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.blas_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.memory_reserve_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_memory_reserve_bytes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_outer_parallel_threads": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.energy_jobs_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.solver_backend": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.minimum_energy_chunk": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.auto.blocks_per_worker": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "execution.strategy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_execution",
+            "used": {
+              "strategy": "manual",
+              "solver_backend": "production",
+              "fail_on_thread_mismatch": false,
+              "automatic": {
+                "hilbert_columns_per_worker": 8,
+                "minimum_energy_chunk": 8,
+                "minimum_outer_parallel_threads": 4,
+                "energy_jobs_per_worker": 2,
+                "large_basis_threshold": 32,
+                "memory_reserve_fraction": 0.125,
+                "minimum_memory_reserve_bytes": 2147483648,
+                "energy_chunk_alignment": 8,
+                "workspace_budget_fraction": 0.05,
+                "blocks_per_worker": 4,
+                "workspace_complex_arrays_per_energy_block": 12
+              },
+              "julia_threads": 1,
+              "blas_threads": 1
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "scales": {
+            "input_assigning_histories": {
+              "scales.reference_mass_ratio": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "scales.energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "scales.length": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_scales",
+            "used": {
+              "m_ref": {
+                "unit": "kg",
+                "value": 6.103287088313001e-32
+              },
+              "L₀_m": 1e-08,
+              "λ_P": 18.095128179727823,
+              "E₀_eV": 0.1,
+              "J₀": {
+                "unit": "A m^-2",
+                "value": 243413480727.93887
+              },
+              "E₀_J": 1.602176634e-20,
+              "E₀": {
+                "unit": "eV",
+                "value": 0.1
+              },
+              "L₀": {
+                "unit": "m",
+                "value": 1e-08
+              }
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "domain_adaptation": {
+            "input_assigning_histories": {
+              "domain_adaptation.mode": [
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_domain_adaptation",
+            "used": {
+              "growth_fraction": 0.5,
+              "maximum_energy_nodes": 100001,
+              "mode": "none",
+              "maximum_expansions": 2,
+              "tail_threshold": 1e-06
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "solver": {
+            "input_assigning_histories": {
+              "solver.convergence.diagnostic_quality.outer_threshold": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.hartree": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.neutrality": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.trend.max_regression": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.target_fixed_point": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.energy_edge": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.density": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.self_energy_mixing": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.positivity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.poisson_gauge": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.minimum_poisson_iterations": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.validation_windows.momentum_tail_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.keldysh": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.strict_attempt_iterations": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.trend.window": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.trend.minimum_reduction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.poisson": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.required_consecutive_passes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.causality": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.maximum_poisson_iterations": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "solver.tolerances.tail": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.validation_windows.energy_tail_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.stagnation_window": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "solver.tolerances.current_continuity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.observables": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.minimum_scba_iterations": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.required_consecutive_poisson_passes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.keldysh": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.causality": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.coarse_wait_iterations": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.maximum_scba_iterations": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml"
+              ],
+              "solver.tolerances.spectral_identity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.mode": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:convergence-policy"
+              ],
+              "solver.convergence.diagnostic_quality.observables": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.power": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.stagnation_relative_improvement": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "solver.tolerances.collision": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.self_energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.normalization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.imaginary_part": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.required_consecutive_scba_passes": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.positivity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.sum_rule": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.self_energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.enabled": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.fft_roundoff": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.poisson_mixing": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.trend.max_oscillation": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.trend.promising_threshold": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.convergence.diagnostic_quality.normalization": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "solver.tolerances.dyson": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_solver",
+            "used": {
+              "α_P": 0.15,
+              "max_scba": 3,
+              "energy_tail_window_fraction": 0.05,
+              "α_Σ": 0.1,
+              "momentum_tail_window_fraction": 0.1,
+              "convergence": {
+                "stagnation_relative_improvement": 0.0,
+                "minimum_scba_iterations": 2,
+                "required_consecutive_poisson_passes": 2,
+                "minimum_poisson_iterations": 2,
+                "trend": {
+                  "max_regression": 2.0,
+                  "promising_threshold": 0.0001,
+                  "max_oscillation": 10.0,
+                  "window": 32,
+                  "minimum_reduction": 0.5
+                },
+                "mode": "adaptive_working",
+                "required_consecutive_scba_passes": 3,
+                "stagnation_window": 0,
+                "diagnostic_quality": {
+                  "enabled": true,
+                  "strict_attempt_iterations": 8,
+                  "normalization_threshold": 0.0001,
+                  "positivity_threshold": 1e-06,
+                  "outer_threshold": 0.0001,
+                  "self_energy_threshold": 0.001,
+                  "target_fixed_point_threshold": 0.0001,
+                  "keldysh_threshold": 0.001,
+                  "causality_threshold": 1e-10,
+                  "observable_threshold": 0.001,
+                  "coarse_wait_iterations": 64,
+                  "required_consecutive_passes": 3
+                }
+              },
+              "max_poisson": 3,
+              "tolerances": {
+                "r_D": 1e-11,
+                "r_U": 1e-07,
+                "r_C": 1e-08,
+                "r_neutral": 1e-10,
+                "r_K": 1e-08,
+                "r_obs": 0.0001,
+                "r_λ": 1e-08,
+                "r_power": 0.0001,
+                "r_PSD": 1e-10,
+                "r_A": 1e-09,
+                "r_caus": 1e-10,
+                "r_roundoff": 1e-10,
+                "r_Σ": 1e-08,
+                "r_P": 1e-11,
+                "r_n": 1e-07,
+                "r_J": 1e-06,
+                "r_tail": 1e-06,
+                "r_imag": 1e-10,
+                "r_edge": 1e-06,
+                "r_ζ": 1e-10,
+                "r_sum": 0.001
+              }
+            },
+            "origin": "owning_resolution_rule"
+          },
+          "physical": {
+            "input_assigning_histories": {
+              "physical.sound_velocity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.voltage_per_period": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.high_frequency_relative_permittivity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.impurity_screening_wavenumber": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.interface_correlation_length": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.acoustic_deformation_potential": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lo_screening_wavenumber": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lo_temperature": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:temperature-axis"
+              ],
+              "physical.interfaces": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.donor_sheet_density": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.reference_energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lo_phonon_energy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.spin_degeneracy": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.position_origin": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.lattice_temperature": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/native-publication-fixture.yaml#generated:temperature-axis"
+              ],
+              "physical.layers": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.mass_density": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.static_relative_permittivity": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.primitive_cell_volume": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "physical.ionization_fraction": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.interface_roughness_height": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ],
+              "physical.alloy_potential": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml",
+                "/fixture/runner/examples/config/analytical-diagnostic.yaml"
+              ],
+              "physical.field_bias": [
+                "/fixture/runner/examples/config/reference-2019-70k.yaml"
+              ]
+            },
+            "rule_source": "Runner:src/infrastructure/config/configuration.jl@sha256:7ee6d058774f135b092e1b76a215e29db21dcf1adf4fca7be3ea079ce09c2129#_parse_physical",
+            "used": {
+              "layers": [
+                {
+                  "d": {
+                    "unit": "m",
+                    "value": 3.26e-09
+                  },
+                  "εᵣ": 12.9,
+                  "doped": false,
+                  "x_Al": 0.25,
+                  "m_parallelᵣ": 0.08775,
+                  "Eᶜ": {
+                    "unit": "eV",
+                    "value": 0.20775
+                  },
+                  "material": "AlGaAs",
+                  "mᶻᵣ": 0.08775
+                },
+                {
+                  "d": {
+                    "unit": "m",
+                    "value": 7.99e-09
+                  },
+                  "εᵣ": 12.9,
+                  "doped": false,
+                  "x_Al": 0.0,
+                  "m_parallelᵣ": 0.067,
+                  "Eᶜ": {
+                    "unit": "eV",
+                    "value": 0.0
+                  },
+                  "material": "GaAs",
+                  "mᶻᵣ": 0.067
+                },
+                {
+                  "d": {
+                    "unit": "m",
+                    "value": 1.9e-09
+                  },
+                  "εᵣ": 12.9,
+                  "doped": false,
+                  "x_Al": 0.25,
+                  "m_parallelᵣ": 0.08775,
+                  "Eᶜ": {
+                    "unit": "eV",
+                    "value": 0.20775
+                  },
+                  "material": "AlGaAs",
+                  "mᶻᵣ": 0.08775
+                },
+                {
+                  "d": {
+                    "unit": "m",
+                    "value": 8.4e-09
+                  },
+                  "εᵣ": 12.9,
+                  "doped": false,
+                  "x_Al": 0.0,
+                  "m_parallelᵣ": 0.067,
+                  "Eᶜ": {
+                    "unit": "eV",
+                    "value": 0.0
+                  },
+                  "material": "GaAs",
+                  "mᶻᵣ": 0.067
+                },
+                {
+                  "d": {
+                    "unit": "m",
+                    "value": 2.9e-09
+                  },
+                  "εᵣ": 12.9,
+                  "doped": true,
+                  "x_Al": 0.0,
+                  "m_parallelᵣ": 0.067,
+                  "Eᶜ": {
+                    "unit": "eV",
+                    "value": 0.0
+                  },
+                  "material": "GaAs",
+                  "mᶻᵣ": 0.067
+                },
+                {
+                  "d": {
+                    "unit": "m",
+                    "value": 5.16e-09
+                  },
+                  "εᵣ": 12.9,
+                  "doped": false,
+                  "x_Al": 0.0,
+                  "m_parallelᵣ": 0.067,
+                  "Eᶜ": {
+                    "unit": "eV",
+                    "value": 0.0
+                  },
+                  "material": "GaAs",
+                  "mᶻᵣ": 0.067
+                }
+              ],
+              "F_bias": {
+                "unit": "V m^-1",
+                "value": 1891252.955082742
+              },
+              "N_dop²ᴰ": {
+                "unit": "m^-2",
+                "value": 450000000000000.0
+              },
+              "E_ref": {
+                "unit": "eV",
+                "value": 0.0
+              },
+              "q_s": {
+                "unit": "m^-1",
+                "value": 200000000.0
+              },
+              "ΔV_alloy": {
+                "unit": "eV",
+                "value": 0.6
+              },
+              "f_ion": 1.0,
+              "qᴸᴼ_s": {
+                "unit": "m^-1",
+                "value": 200000000.0
+              },
+              "interfaces": [
+                {
+                  "unit": "m",
+                  "value": 0.0
+                },
+                {
+                  "unit": "m",
+                  "value": 3.26e-09
+                },
+                {
+                  "unit": "m",
+                  "value": 1.1250000000000001e-08
+                },
+                {
+                  "unit": "m",
+                  "value": 1.3150000000000002e-08
+                }
+              ],
+              "Ξ": {
+                "unit": "eV",
+                "value": 7.0
+              },
+              "v_s": {
+                "unit": "m s^-1",
+                "value": 5240.0
+              },
+              "Λᴵᶠᴿ": {
+                "unit": "m",
+                "value": 9.000000000000001e-09
+              },
+              "Ω₀": {
+                "unit": "m^3",
+                "value": 4.5168e-29
+              },
+              "Tᴸ": {
+                "unit": "K",
+                "value": 70.0
+              },
+              "Tᴸᴼ": {
+                "unit": "K",
+                "value": 70.0
+              },
+              "Δᴵᶠᴿ": {
+                "unit": "m",
+                "value": 1.0000000000000002e-10
+              },
+              "ε_s": 12.9,
+              "ρ_m": {
+                "unit": "kg m^-3",
+                "value": 5317.0
+              },
+              "g_s": 2,
+              "ε_∞": 10.89,
+              "z₀": {
+                "unit": "m",
+                "value": 0.0
+              },
+              "ħωᴸᴼ": {
+                "unit": "eV",
+                "value": 0.0367
+              }
+            },
+            "origin": "owning_resolution_rule"
+          }
+        },
+        "phase": "resolved_declarative_inputs",
+        "model_binding": {
+          "encoding": "qcl-negf-canonical-bytes-v1",
+          "scope": "stationary_transport_inputs_v1",
+          "sha256": "14b603bc0deefb9ae44747e239ec2b03d3784d2d83dd58d527f43d8d78775150"
+        }
+      },
+      "output": {
+        "archive": {
+          "intermediate_history": 3,
+          "optical": false,
+          "full_final": true,
+          "projections": false
+        },
+        "recovery": {
+          "enabled": false,
+          "retain_generations": 2,
+          "reserve_bytes": 67108864,
+          "byte_budget": 8589934592,
+          "interval_seconds": 1800.0
+        },
+        "telemetry": {
+          "enabled": false,
+          "buffer_events": 256
+        }
+      },
+      "label": "SYNTHETIC native publication fixture v1; not_scientific / baseline",
+      "repetition": 1,
+      "method_id": "configured",
+      "definition_id": "native-publication-fixture-v1",
+      "operation": "stationary",
+      "point_ids": [
+        "point-1"
+      ],
+      "estimated_peak_bytes": 193096,
+      "id": "execution-1",
+      "policies": {
+        "scba_to_poisson": "adaptive_working",
+        "on_child_failure": "continue",
+        "voltage": {
+          "invalid_predecessor": "stop_branch",
+          "mode": "independent"
+        }
+      },
+      "resource_estimate": {
+        "retained_resident_bytes": 0,
+        "initial": {
+          "resident_bytes": 130384,
+          "breakdown": {
+            "candidate_generation": 25920,
+            "dense_shift_matrices_in_problem": 0,
+            "anderson_history": 0,
+            "production_kernel_cache": 0,
+            "green_state": 7344,
+            "scalar_reduction_workspace": 504,
+            "product_hilbert_operator": 0,
+            "anderson_guard_workspace": 0,
+            "stored_embedding": 15552,
+            "stored_scattering": 0,
+            "fft_workspace": 19968,
+            "energy_shift_plans": 1152,
+            "dyson_inverse_workspace": 26400,
+            "residual_workspace": 1408,
+            "raw_six_axis_kernels": 0,
+            "cavity_workspace": 49680,
+            "anderson_gram": 0,
+            "candidate_transform_temporaries": 10368,
+            "physics_witness_blocks": 7728,
+            "compact_shift_operators_in_problem": 1152,
+            "retained_warm_start": 22464,
+            "blas_workspace": 3456
+          },
+          "peak_bytes": 193096
+        },
+        "allocator_overhead_bytes": null,
+        "measured_rss_bytes": null,
+        "unknown": [
+          "runtime_overhead",
+          "allocator_overhead",
+          "native_grant",
+          "measured_rss"
+        ],
+        "decision_kind": "planning_estimate",
+        "basis": {
+          "runner_formula_sha256": "588de8311ac1f41b4921956ce6bc89ae27bae5bfd50a8c8960c1ed755246e4f1",
+          "core_estimator_sha256": "49be2af49db6ff2a61e65f4829bfb018060edac7936f7e78b72c7aca099c09e3"
+        },
+        "confidence": "analytical_conservative_uncalibrated",
+        "adaptation_enabled": false,
+        "admitted_memory_bytes": null,
+        "worker_capacity": 12,
+        "declared_maximum_energy_nodes": 9,
+        "total_memory_request_bytes": null,
+        "initial_energy_nodes": 9,
+        "runtime_overhead_bytes": null,
+        "status": "available",
+        "declared_cap": {
+          "resident_bytes": 130384,
+          "breakdown": {
+            "candidate_generation": 25920,
+            "dense_shift_matrices_in_problem": 0,
+            "anderson_history": 0,
+            "production_kernel_cache": 0,
+            "green_state": 7344,
+            "scalar_reduction_workspace": 504,
+            "product_hilbert_operator": 0,
+            "anderson_guard_workspace": 0,
+            "stored_embedding": 15552,
+            "stored_scattering": 0,
+            "fft_workspace": 19968,
+            "energy_shift_plans": 1152,
+            "dyson_inverse_workspace": 26400,
+            "residual_workspace": 1408,
+            "raw_six_axis_kernels": 0,
+            "cavity_workspace": 49680,
+            "anderson_gram": 0,
+            "candidate_transform_temporaries": 10368,
+            "physics_witness_blocks": 7728,
+            "compact_shift_operators_in_problem": 1152,
+            "retained_warm_start": 22464,
+            "blas_workspace": 3456
+          },
+          "peak_bytes": 193096
+        },
+        "schema": "qcl-negf-resource-estimate-v1",
+        "estimated_numerical_peak_bytes": 193096
+      }
+    }
+  ],
+  "name": "SYNTHETIC native publication fixture v1; not_scientific",
+  "points": [
+    {
+      "initialization": "cold",
+      "voltage_per_period_V": 0.05,
+      "id": "point-1",
+      "effective_inputs": {
+        "voltage_per_period_V": 0.05,
+        "model_sha256": "94ca28d97dc95520501ea3322bfb7580811f8832f481b65d1062db391e8801d5",
+        "configuration_hash": "333e8770dbf12bc813fba2d68879718111cfbe7a555292d9a96413ee22055fb2",
+        "axes_applied": true,
+        "hash_encoding": "qcl-negf-canonical-bytes-v1",
+        "temperature_K": 70.0
+      },
+      "predecessor_id": null,
+      "branch": "T1/forward",
+      "execution_id": "execution-1",
+      "order": 1,
+      "temperature_K": 70.0
+    }
+  ],
+  "resources": {
+    "estimated_peak_bytes": 193096,
+    "minimum_output_bytes": 7608,
+    "scheduling": "scheduler_execution_dag",
+    "maximum_active_executions": 1,
+    "output_estimate_basis": "uncompressed native physical arrays; local full state is independent of the analytical archive budget"
+  },
+  "root_kind": "study",
+  "root_definition_id": "native-publication-fixture-v1",
+  "resolved_snapshot_schema": "qcl-negf-resolved-configuration-v1",
+  "campaign": null,
+  "maximum_solver_runs": 1,
+  "inclusions": [
+    {
+      "path": [
+        "native-publication-fixture-v1"
+      ],
+      "label": "SYNTHETIC native publication fixture v1; not_scientific",
+      "id": "inclusion-1",
+      "definition_id": "native-publication-fixture-v1",
+      "parent_id": null,
+      "execution_ids": [
+        "execution-1"
+      ]
+    }
+  ],
+  "science_archive_preflight": null,
+  "nodes": [
+    {
+      "estimated_memory_bytes": 193096,
+      "stage_id": "standalone",
+      "required_evidence": [],
+      "comparable_fingerprint": "ba2224c81703d70c86abaed9d2814559adf49b5e200ff3e511bbd34cfb2b895d",
+      "execution_id": "execution-1",
+      "comparison_reference": null,
+      "forbidden_evidence": [],
+      "priority": 0,
+      "reserve": false,
+      "comparison_kind": "controlled_axis",
+      "controlled_paths": [],
+      "depends_on": []
+    }
+  ],
+  "scientific_fingerprint": "75377fb8b2fe0c2fcd309e48f06b3987eda6e9fff19f4f858c68e7044631dca3",
+  "schema": "qcl-negf-scientific-plan-v2",
+  "model_revision": "transport-contract-v2",
+  "computation_count": 1
+}
