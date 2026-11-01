@@ -80,7 +80,7 @@ if multi:
         files = [{"path": file.name, "bytes": file.stat().st_size, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()} for file in sorted(target.iterdir())]
         completed_records.append({"point": point, "final_commit": f"{identifier}/{point['id']}/final/commit.json", "receipt": receipt, "files": files})
 result = {
-    "schema": "qcl-negf-series-result-v3", "contract_set": "qcl-negf.results.v1",
+    "schema": "qcl-negf-series-result-v3", "contract_set": "qcl-negf.results.v2",
     "plan_fingerprint": plan["fingerprint"], "plan_scientific_fingerprint": plan["scientific_fingerprint"],
     "root_definition_id": plan["root_definition_id"], "name": plan["name"],
     "status": "paused" if paused else "completed", "model_version": "0.2.0", "inclusions": plan["inclusions"],
@@ -101,7 +101,7 @@ if paused or crashed:
         data = f"Synthetic transport {name}, cumulative iteration {attempt}".encode()
         (target / name).write_bytes(data)
         artifacts.append({"path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-    progress = {"schema": "qcl-negf-execution-progress-v1", "contract_set": "qcl-negf.results.v1", "identity": identity,
+    progress = {"schema": "qcl-negf-execution-progress-v1", "contract_set": "qcl-negf.results.v2", "identity": identity,
                 "plan_fingerprint": plan["fingerprint"], "execution_id": identifier, "active_point_id": active["id"],
                 "completed_points": completed_records}
     raw_progress = json.dumps(progress).encode()

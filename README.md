@@ -202,10 +202,11 @@ responsibility.
 
 Use the integration repository's Python 3.14 environment and shared lock, or install the contracts
 wheel followed by `uv pip install -e '.[test,build]'`. The
-[bounded transport rehearsal](tests/TRANSPORT_ACCEPTANCE.md) provides an explicitly synthetic
-native-payload fixture for infrastructure acceptance, with 1 MiB local validity tests and an
-explicit 270 MiB live-fixture flag. It performs no physical calculation and never enters the
-production Code allowlist.
+[native publication engineering checks](tests/TRANSPORT_ACCEPTANCE.md) use the existing
+[native actor route](docs/native-actor.md) and source-owned Runner constructor profile without
+SCBA or Poisson. Local controls preserve negative results and exact original inputs. The obsolete
+Python transport producer and standalone rehearsal are retired; installed native, large-archive,
+TLS, cancellation and restore acceptance remain OPEN pending their separate measured gates.
 
 Run `pytest`. Tests use an isolated SQLite AiiDA profile and actual local CalcJob execution with a
 synthetic solver program. They test scheduler submission, retrieval, provenance, scientific-failure
