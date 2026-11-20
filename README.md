@@ -1,3 +1,5 @@
+> **Переход QCL NEGF.** В приложении `qcl-negf` доступен раздел [Запуск расчётов через HTCondor](https://github.com/Afonenko-QCL-NEGF/qcl-negf/tree/main/lab/). Этот репозиторий хранит историю. [Исходная редакция README](https://github.com/Afonenko-QCL-NEGF/qcl-negf-aiida/blob/a9d2ad09705cf4d8bda7779cbd04c992c884ce2d/README.md).
+
 # QCL-NEGF for AiiDA
 
 Run immutable QCL-NEGF scientific plans through AiiDA, retain their provenance and
